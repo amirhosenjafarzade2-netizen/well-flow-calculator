@@ -127,13 +127,18 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                 if not validate_production_rate(production_rate):
                     errors.append("Invalid production rate.")
                 if not validate_glr(conduit_size, production_rate, glr):
-                    valid_range = get_valid_glr_range(conduit_size, production_rate)
-                    errors.append(f"Invalid GLR. Valid ranges: {valid_range}")
-                    ranges = interpolation_ranges.get((conduit_size, production_rate), [])
-                    if ranges:
-                        min_glr, max_glr = ranges[0]
-                        glr = min(max_glr, max(min_glr, glr))
-                        st.info(f"GLR auto-corrected to {glr} scf/stb.")
+                    try:
+                        valid_range = get_valid_glr_range(conduit_size, production_rate)
+                        logger.debug(f"Valid GLR range for conduit_size={conduit_size}, production_rate={production_rate}: {valid_range}")
+                        errors.append(f"Invalid GLR. Valid ranges: {str(valid_range)}")
+                        ranges = interpolation_ranges.get((conduit_size, production_rate), [])
+                        if ranges:
+                            min_glr, max_glr = ranges[0]
+                            glr = min(max_glr, max(min_glr, glr))
+                            st.info(f"GLR auto-corrected to {glr} scf/stb.")
+                    except Exception as e:
+                        errors.append(f"Failed to validate GLR: {str(e)}")
+                        logger.error(f"GLR validation error: {str(e)}")
                 
                 if not validate_pressure(p1, "wellhead pressure"):
                     errors.append("Invalid wellhead pressure.")
@@ -386,12 +391,18 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 if not validate_production_rate(production_rate):
                     errors.append("Invalid production rate.")
                 if not validate_glr(conduit_size, production_rate, glr):
-                    errors.append(f"Invalid GLR. Valid ranges: {get_valid_glr_range(conduit_size, production_rate)}")
-                    ranges = interpolation_ranges.get((conduit_size, production_rate), [])
-                    if ranges:
-                        min_glr, max_glr = ranges[0]
-                        glr = min(max_glr, max(min_glr, glr))
-                        st.info(f"GLR auto-corrected to {glr} scf/stb.")
+                    try:
+                        valid_range = get_valid_glr_range(conduit_size, production_rate)
+                        logger.debug(f"Valid GLR range for conduit_size={conduit_size}, production_rate={production_rate}: {valid_range}")
+                        errors.append(f"Invalid GLR. Valid ranges: {str(valid_range)}")
+                        ranges = interpolation_ranges.get((conduit_size, production_rate), [])
+                        if ranges:
+                            min_glr, max_glr = ranges[0]
+                            glr = min(max_glr, max(min_glr, glr))
+                            st.info(f"GLR auto-corrected to {glr} scf/stb.")
+                    except Exception as e:
+                        errors.append(f"Failed to validate GLR: {str(e)}")
+                        logger.error(f"GLR validation error: {str(e)}")
                 if not validate_pressure(pwh, "wellhead pressure"):
                     errors.append("Invalid wellhead pressure.")
                 if not validate_pressure(pr, "reservoir pressure"):
