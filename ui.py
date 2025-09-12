@@ -86,12 +86,13 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                 glr = st.number_input(
                     "Custom GLR:",
                     min_value=0.0,
-                    value=st.session_state.p2_finder_inputs['glr'],
+                    value=float(st.session_state.p2_finder_inputs['glr']),
                     step=100.0,
                     help="Enter a custom GLR value (must be within valid ranges)."
                 )
             else:
                 glr = float(glr_option)
+            
             st.session_state.p2_finder_inputs['glr'] = glr
         
         with col2:
