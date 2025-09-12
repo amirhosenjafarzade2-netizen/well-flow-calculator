@@ -127,7 +127,7 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                 if not validate_production_rate(production_rate):
                     errors.append("Invalid production rate.")
                 if not validate_glr(conduit_size, production_rate, glr):
-                    errors.append(f"Invalid GLR. Valid ranges: {get_valid_glr_range(conduit_size production_rate)}")
+                    errors.append(f"Invalid GLR. Valid ranges: {get_valid_glr_range(conduit_size, production_rate)}")
                     ranges = interpolation_ranges.get((conduit_size, production_rate), [])
                     if ranges:
                         min_glr, max_glr = ranges[0]
