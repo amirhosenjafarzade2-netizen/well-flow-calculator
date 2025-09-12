@@ -422,15 +422,17 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
                 ax_flow.grid(True)
                 st.pyplot(fig_flow)
 
-        if not np.isfinite(c) or not np.isfinite(n) or c <= 0 or n <= 0:
-            raise ValueError(f"Computed Fetkovich parameters invalid: C={c}, n={n}")
+    # Validate c and n
+    if c <= 0 or not np.isfinite(c) or n <= 0 or n > 2.0 or not np.isfinite(n):
+        st.error(f"Invalid Fetkovich parameters: C={c}, n={n}. C must be positive, n must be in (0, 2].")
+        raise ValueError(f"Invalid Fetkovich parameters: C={c}, n={n}")
 
     # Generate IPR points (for both direct and point-based inputs)
     pwf_values = np.linspace(0, pr, 15)
     ipr_points = []
     for pwf in pwf_values:
         q0 = c * (pr**2 - pwf**2)**n
-        if np.isfinite(q0) and 0 <= q0 <= 1000:
+        if np.isfinite(q0) and q0 >= 0:  # Relaxed q0 upper limit
             ipr_points.append((q0, pwf))
     if len(ipr_points) < 2:
         raise ValueError("Insufficient valid IPR points to plot (need at least 2).")
@@ -464,63 +466,51 @@ def calculate_ipr_composite(pr, j_star, p_b):
     return j_star, p_b, ipr_points
 
 # Modular function to find intersection with feasibility check and bisect solver
-def find_intersection(tpr_interp, ipr_func, pr):
-    def intersection_func(p):
+def find_intersection(tpr_points, ipr_points, pr):
+    # Interpolate IPR as Pwf vs Q0
+    ipr_q0, ipr_pwf = zip(*ipr_points)
+    ipr_interp = interp1d(ipr_q0, ipr_pwf, kind='linear', fill_value='extrapolate')
+
+    # Interpolate TPR as Pwf vs Q0
+    tpr_q0, tpr_p2 = zip(*tpr_points)
+    tpr_interp = interp1d(tpr_q0, tpr_p2, kind='linear', fill_value='extrapolate')
+
+    # Define difference function in Q0 space
+    def diff_func(q):
         try:
-            q0_ipr = ipr_func(p)
-            q0_tpr = tpr_interp(p)
-            return q0_ipr - q0_tpr
+            return ipr_interp(q) - tpr_interp(q)
         except Exception as e:
-            st.write(f"Intersection function error at p={p}: {str(e)}")
+            st.write(f"Intersection function error at q={q}: {str(e)}")
             return np.inf
 
-    # Feasibility check: Check if curves cross by evaluating sign change in [0, pr]
-    p_low = 0
-    p_high = pr
-    f_low = intersection_func(p_low)
-    f_high = intersection_func(p_high)
-    if not (np.isfinite(f_low) and np.isfinite(f_high)) or f_low * f_high > 0:
-        st.write(f"No sign change detected: f_low={f_low:.2f}, f_high={f_high:.2f}")
-        return None, None  # No sign change, no intersection
-
-    # Try bisect method first
+    # Find root between min and max Q0 ranges
     try:
-        intersection_p = bisect(intersection_func, p_low, p_high, maxiter=200)
-        q0_ipr = ipr_func(intersection_p)
-        q0_tpr = tpr_interp(intersection_p)
-        # Relaxed tolerance and production rate limit
-        if (0 <= intersection_p <= max(pr, 4000) and 
-            0 <= q0_ipr <= 750 and 0 <= q0_tpr <= 750 and 
-            abs(q0_ipr - q0_tpr) < 1.0):
-            st.write(f"Intersection found (bisect): p={intersection_p:.2f}, q0_ipr={q0_ipr:.2f}, q0_tpr={q0_tpr:.2f}, diff={abs(q0_ipr - q0_tpr):.4f}")
-            return q0_ipr, intersection_p
+        q_min = max(min(ipr_q0), min(tpr_q0))
+        q_max = min(max(ipr_q0), max(tpr_q0))
+        if q_min >= q_max:
+            st.write(f"Invalid Q0 range: q_min={q_min:.2f}, q_max={q_max:.2f}")
+            return None, None
+        f_min = diff_func(q_min)
+        f_max = diff_func(q_max)
+        if not (np.isfinite(f_min) and np.isfinite(f_max)):
+            st.write(f"Non-finite function values: f_min={f_min}, f_max={f_max}")
+            return None, None
+        if f_min * f_max > 0:
+            st.write(f"No sign change detected: f_min={f_min:.2f}, f_max={f_max:.2f}")
+            return None, None
+        intersection_q0 = bisect(diff_func, q_min, q_max, maxiter=200)
+        intersection_p = ipr_interp(intersection_q0)
+        # Validate intersection
+        if (0 <= intersection_q0 <= 750 and 0 <= intersection_p <= max(pr, 4000) and
+            abs(ipr_interp(intersection_q0) - tpr_interp(intersection_q0)) < 1.0):
+            st.write(f"Intersection found: Q0={intersection_q0:.2f} stb/day, P={intersection_p:.2f} psi")
+            return intersection_q0, intersection_p
         else:
-            st.write(f"Intersection rejected (bisect): p={intersection_p:.2f}, q0_ipr={q0_ipr:.2f}, q0_tpr={q0_tpr:.2f}, diff={abs(q0_ipr - q0_tpr):.4f}")
+            st.write(f"Intersection rejected: Q0={intersection_q0:.2f}, P={intersection_p:.2f}, "
+                     f"diff={abs(ipr_interp(intersection_q0) - tpr_interp(intersection_q0)):.4f}")
+            return None, None
     except Exception as e:
-        st.write(f"Bisect failed: {str(e)}")
-
-    # Fallback: Grid-based search
-    st.write("Trying grid-based intersection search...")
-    p_values = np.linspace(0, pr, 1000)  # Fine grid for better resolution
-    min_diff = np.inf
-    best_p = None
-    best_q0 = None
-    for p in p_values:
-        try:
-            q0_ipr = ipr_func(p)
-            q0_tpr = tpr_interp(p)
-            diff = abs(q0_ipr - q0_tpr)
-            if diff < min_diff and 0 <= q0_ipr <= 750 and 0 <= q0_tpr <= 750:
-                min_diff = diff
-                best_p = p
-                best_q0 = q0_ipr
-        except:
-            continue
-    if min_diff < 1.0 and best_p is not None:
-        st.write(f"Intersection found (grid): p={best_p:.2f}, q0_ipr={best_q0:.2f}, q0_tpr={tpr_interp(best_p):.2f}, diff={min_diff:.4f}")
-        return best_q0, best_p
-    else:
-        st.write(f"Grid search failed: min_diff={min_diff:.4f}, best_p={best_p}")
+        st.write(f"Intersection search failed: {str(e)}")
         return None, None
 
 # Modular function to plot TPR and IPR curves
