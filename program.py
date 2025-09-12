@@ -44,13 +44,17 @@ def parse_name(name):
 
 # Function to load reference data
 def load_reference_data():
-    st.write("Please upload the reference Excel file 'all equations ei5204.xlsx'.")
+    st.write("Please upload the reference Excel file (format: name in first column, coefficients in columns 2-7).")
     uploaded_file = st.file_uploader("Upload Reference Excel", type=["xlsx"])
     if uploaded_file is None:
         st.error("No file uploaded. Please upload the file.")
         return None
     try:
         df_ref = pd.read_excel(uploaded_file, header=None, engine='openpyxl')
+        # Validate file structure
+        if df_ref.shape[1] < 6:
+            st.error("Invalid Excel file: Must have at least 6 columns (name + 5 or 6 coefficients).")
+            return None
         data_ref = []
         for index, row in df_ref.iterrows():
             name = row[0]
@@ -99,7 +103,7 @@ def calculate_results(conduit_size_input, production_rate_input, glr_input, p1, 
 
     # Validate production rate
     if not (50 <= production_rate_input <= 600):
-        st.error("Production rate must be between 50 and 600 stb/day.")
+        st.error("Production rate must be between 50 and 600 stb/day (interpolation supported).")
         return None, None, None, None, None, None, None
 
     # Find the two closest production rates for interpolation
@@ -284,7 +288,11 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
                 coeffs['d'] * x**2 + coeffs['e'] * x + coeffs['f'])
     y1_full = []
     crossing_x = None
+    max_iterations = 100  # Added to prevent infinite loop
+    iteration = 0
     for p in p1_full:
+        if iteration >= max_iterations:
+            break
         y = polynomial(p, coeffs)
         if np.isfinite(y) and y <= 31000:
             y1_full.append(y)
@@ -305,6 +313,7 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
                     break
             else:
                 y1_full.append(31000)
+        iteration += 1
     ax.plot(p1_full[:len(y1_full)], y1_full, color='blue', linewidth=2.5,
             label=f'GLR curve ({"Interpolated" if interpolation_status == "interpolated" else "Exact"}, Q0={production_rate} stb/day, GLR={glr_input})')
     ax.scatter([p1], [y1], color='blue', s=50, label=f'(p1, y1) = ({p1:.2f} psi, {y1:.2f} ft)')
@@ -330,7 +339,7 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8, frameon=True, edgecolor='black')
     return fig
 
-# Modular function to calculate TPR points (using Beggs-Brill or polynomial approximation from data)
+# Modular function to calculate TPR points
 def calculate_tpr_points(conduit_size, glr, D, pwh, data_ref):
     production_rates = [50, 100, 200, 400, 600]
     tpr_points = []
@@ -344,6 +353,7 @@ def calculate_tpr_points(conduit_size, glr, D, pwh, data_ref):
 
 # Modular function to calculate IPR parameters and points using Fetkovich method
 def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, pwf2=None, q03=None, pwf3=None, q04=None, pwf4=None):
+    points = None
     if c is None or n is None:
         points = []
         if q01 is not None and pwf1 is not None and q01 > 0 and pwf1 > 0:
@@ -366,8 +376,8 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
                 raise ValueError("Invalid Fetkovich input parameters: Pwf1, Pwf2, Q01, Q02 must be positive and distinct.")
             delta_p1 = pr**2 - pwf1**2
             delta_p2 = pr**2 - pwf2**2
-            if delta_p1 <= 0 or delta_p2 <= 0:
-                raise ValueError("Invalid delta pressures: Pr^2 - Pwf^2 must be positive.")
+            if delta_p1 <= 0 or delta_p2 <= 0 or delta_p1 == delta_p2:
+                raise ValueError("Invalid delta pressures: Pr^2 - Pwf^2 must be positive and distinct.")
             n = np.log10(q02 / q01) / np.log10(delta_p2 / delta_p1)
             c = q01 / (delta_p1 ** n)
         else:
@@ -438,7 +448,7 @@ def calculate_ipr_vogel(pr, q_max):
         raise ValueError("Insufficient valid IPR points to plot (need at least 2).")
     return q_max, ipr_points
 
-# Modular function to calculate IPR parameters and points using Composite (partially two-phase) method
+# Modular function to calculate IPR parameters and points using Composite method
 def calculate_ipr_composite(pr, j_star, p_b):
     pwf_values = np.linspace(0, pr, 15)
     ipr_points = []
@@ -543,7 +553,7 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
 
     # Interpolate TPR curve
     try:
-        tpr_p2, tpr_q0 = zip(*tpr_points)
+        tpr_q0, tpr_p2 = zip(*tpr_points)
         tpr_interp = interp1d(tpr_p2, tpr_q0, kind='linear', fill_value='extrapolate')
     except Exception as e:
         st.error(f"Error interpolating TPR curve: {str(e)}")
@@ -581,9 +591,7 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
     # Find intersection with feasibility check
     intersection_q0, intersection_p = find_intersection(tpr_interp, ipr_func, pr)
     if intersection_q0 is None:
-        st.warning("Well cannot flow naturally; artificial lift required.")
-    else:
-        st.write(f"Intersection found: Q0={intersection_q0:.2f} stb/day, P={intersection_p:.2f} psi")
+        st.warning("Well cannot flow naturally; artificial lift required. Showing TPR and IPR curves for visualization.")
 
     # Plot curves regardless of intersection
     try:
@@ -610,35 +618,44 @@ def run_p2_finder():
     st.header("p2 Finder")
     st.write("Enter parameters to calculate pressure and depth values using polynomial formulas.")
     conduit_size = st.selectbox("Conduit Size:", [2.875, 3.5])
-    production_rate = st.number_input("Production Rate:", value=100.0, min_value=50.0, max_value=600.0)
-    glr = st.number_input("GLR:", value=200.0)
-    p1 = st.number_input("Pressure p1 (psi):", value=1000.0)
-    D = st.number_input("Depth Offset D (ft):", value=1000.0)
+    production_rate = st.number_input("Production Rate (stb/day, interpolated between 50 and 600):", value=100.0, min_value=50.0, max_value=600.0)
+    glr = st.number_input("GLR:", value=200.0, min_value=0.0)
+    p1 = st.number_input("Pressure p1 (psi):", value=1000.0, min_value=0.0, max_value=4000.0)
+    D = st.number_input("Depth Offset D (ft):", value=1000.0, min_value=0.0)
+
+    # Validate GLR
+    valid_glr = False
+    for prate in PRODUCTION_RATES:
+        if (conduit_size, prate) in INTERPOLATION_RANGES:
+            for min_glr, max_glr in INTERPOLATION_RANGES[(conduit_size, prate)]:
+                if min_glr <= glr <= max_glr:
+                    valid_glr = True
+                    break
+            if valid_glr:
+                break
+    if not valid_glr:
+        st.error(f"GLR {glr} is outside valid ranges for conduit size {conduit_size} and available production rates.")
+        return
 
     if st.button("Calculate"):
         if st.session_state.REFERENCE_DATA is None:
             st.error("Reference data not loaded. Please restart the program and upload the reference Excel file.")
-            post_task_menu("p2 Finder")
             return
 
         # Validate p1 by checking if y1 <= 31000
         result = calculate_results(conduit_size, production_rate, glr, p1, D, st.session_state.REFERENCE_DATA)
         if result[0] is None:
-            # If calculate_results fails due to invalid inputs (e.g., GLR, production rate), exit
             st.error("Invalid input parameters (e.g., GLR or production rate). Please check and try again.")
-            post_task_menu("p2 Finder")
             return
         y1 = result[0]
 
         if y1 > 31000:
             st.error(f"Invalid pressure: p1 = {p1} psi results in y1 = {y1:.2f} ft, which exceeds 31000 ft.")
-            post_task_menu("p2 Finder")
             return
 
         # Validate D by checking if y1 + D <= 31000
         if y1 + D > 31000:
             st.error(f"Invalid well length: D = {D} ft results in y1 + D = {y1 + D:.2f} ft, which exceeds 31000 ft.")
-            post_task_menu("p2 Finder")
             return
 
         # Proceed with calculation
@@ -667,11 +684,25 @@ def run_natural_flow_finder():
     st.header("Point of Natural Flow Finder")
     st.write("Enter parameters to find the point of natural flow using TPR and IPR curves.")
     conduit_size = st.selectbox("Conduit Size:", [2.875, 3.5])
-    glr = st.number_input("GLR:", value=200.0)
-    D = st.number_input("Well Length D (ft):", value=1000.0)
-    pwh = st.number_input("Wellhead Pressure Pwh (psi):", value=1000.0)
-    pr = st.number_input("Reservoir Pressure Pr (psi):", value=3000.0)
+    glr = st.number_input("GLR:", value=200.0, min_value=0.0)
+    D = st.number_input("Well Length D (ft):", value=1000.0, min_value=1e-6)
+    pwh = st.number_input("Wellhead Pressure Pwh (psi):", value=1000.0, min_value=0.0, max_value=4000.0)
+    pr = st.number_input("Reservoir Pressure Pr (psi):", value=3000.0, min_value=1e-6)
     ipr_method = st.selectbox("IPR Method:", ["Fetkovich", "Vogel", "Composite"])
+
+    # Validate GLR
+    valid_glr = False
+    for prate in PRODUCTION_RATES:
+        if (conduit_size, prate) in INTERPOLATION_RANGES:
+            for min_glr, max_glr in INTERPOLATION_RANGES[(conduit_size, prate)]:
+                if min_glr <= glr <= max_glr:
+                    valid_glr = True
+                    break
+            if valid_glr:
+                break
+    if not valid_glr:
+        st.error(f"GLR {glr} is outside valid ranges for conduit size {conduit_size} and available production rates.")
+        return
 
     fetkovich_method = None
     c = None
@@ -691,48 +722,44 @@ def run_natural_flow_finder():
     if ipr_method == "Fetkovich":
         fetkovich_method = st.selectbox("Fetkovich Method:", ["Enter C and n directly", "Calculate C and n from points"])
         if fetkovich_method == "Enter C and n directly":
-            c = st.number_input("C:", value=1e-5, step=1e-6, format="%.6e")
-            n = st.number_input("n:", value=0.5, step=0.01)
+            c = st.number_input("C:", value=1e-5, step=1e-6, format="%.6e", min_value=1e-10)
+            n = st.number_input("n:", value=0.5, step=0.01, min_value=1e-6)
         else:
-            q01 = st.number_input("Q01 (stb/day):", value=100.0)
-            pwf1 = st.number_input("Pwf1 (psi):", value=2000.0)
-            q02 = st.number_input("Q02 (stb/day):", value=200.0)
-            pwf2 = st.number_input("Pwf2 (psi):", value=1500.0)
-            q03 = st.number_input("Q03 (stb/day):", value=0.0)
-            pwf3 = st.number_input("Pwf3 (psi):", value=0.0)
-            q04 = st.number_input("Q04 (stb/day):", value=0.0)
-            pwf4 = st.number_input("Pwf4 (psi):", value=0.0)
+            q01 = st.number_input("Q01 (stb/day):", value=100.0, min_value=1e-6)
+            pwf1 = st.number_input("Pwf1 (psi):", value=2000.0, min_value=1e-6)
+            q02 = st.number_input("Q02 (stb/day):", value=200.0, min_value=1e-6)
+            pwf2 = st.number_input("Pwf2 (psi):", value=1500.0, min_value=1e-6)
+            q03 = st.number_input("Q03 (stb/day):", value=0.0, min_value=0.0)
+            pwf3 = st.number_input("Pwf3 (psi):", value=0.0, min_value=0.0)
+            q04 = st.number_input("Q04 (stb/day):", value=0.0, min_value=0.0)
+            pwf4 = st.number_input("Pwf4 (psi):", value=0.0, min_value=0.0)
     elif ipr_method == "Vogel":
-        q_max = st.number_input("q_max (stb/day):", value=500.0)
+        q_max = st.number_input("q_max (stb/day):", value=500.0, min_value=1e-6)
     elif ipr_method == "Composite":
-        j_star = st.number_input("J* (stb/day/psi):", value=0.5)
-        p_b = st.number_input("P_b (psi):", value=2000.0)
+        j_star = st.number_input("J* (stb/day/psi):", value=0.5, min_value=1e-6)
+        p_b = st.number_input("P_b (psi):", value=2000.0, min_value=1e-6)
 
     if st.button("Calculate and Plot"):
         if st.session_state.REFERENCE_DATA is None:
             st.error("Reference data not loaded. Please restart the program and upload the reference Excel file.")
-            post_task_menu("Point of Natural Flow Finder")
+            return
+
+        # Validate depth using a sample production rate
+        sample_prate = PRODUCTION_RATES[0]  # Use first production rate for validation
+        result = calculate_results(conduit_size, sample_prate, glr, pwh, D, st.session_state.REFERENCE_DATA)
+        if result[0] is None:
+            st.error("Invalid input parameters (e.g., GLR or production rate). Please check and try again.")
+            return
+        y1 = result[0]
+        if y1 > 31000:
+            st.error(f"Invalid wellhead pressure: Pwh = {pwh} psi results in y1 = {y1:.2f} ft, which exceeds 31000 ft.")
+            return
+        if y1 + D > 31000:
+            st.error(f"Invalid well length: D = {D} ft results in y1 + D = {y1 + D:.2f} ft, which exceeds 31000 ft.")
             return
 
         st.write("Processing inputs...")
         try:
-            if conduit_size not in [2.875, 3.5]:
-                st.error("Invalid conduit size. Please select 2.875 or 3.5.")
-                post_task_menu("Point of Natural Flow Finder")
-                return
-            if D <= 0:
-                st.error("Well length D must be positive.")
-                post_task_menu("Point of Natural Flow Finder")
-                return
-            if pwh < 0 or pwh > 4000:
-                st.error("Wellhead pressure Pwh must be between 0 and 4000 psi.")
-                post_task_menu("Point of Natural Flow Finder")
-                return
-            if pr <= 0:
-                st.error("Reservoir pressure Pr must be positive.")
-                post_task_menu("Point of Natural Flow Finder")
-                return
-
             ipr_params = {}
             if ipr_method == "Fetkovich":
                 if fetkovich_method == "Enter C and n directly":
@@ -747,27 +774,11 @@ def run_natural_flow_finder():
                     ipr_params['pwf3'] = float(pwf3)
                     ipr_params['q04'] = float(q04)
                     ipr_params['pwf4'] = float(pwf4)
-                    if ipr_params['q01'] <= 0 or ipr_params['q02'] <= 0:
-                        st.error("Q01 and Q02 must be positive.")
-                        post_task_menu("Point of Natural Flow Finder")
-                        return
-                    if ipr_params['pwf1'] <= 0 or ipr_params['pwf2'] <= 0:
-                        st.error("Pwf1 and Pwf2 must be positive.")
-                        post_task_menu("Point of Natural Flow Finder")
-                        return
             elif ipr_method == "Vogel":
                 ipr_params['q_max'] = float(q_max)
-                if ipr_params['q_max'] <= 0:
-                    st.error("q_max must be positive.")
-                    post_task_menu("Point of Natural Flow Finder")
-                    return
             elif ipr_method == "Composite":
                 ipr_params['j_star'] = float(j_star)
                 ipr_params['p_b'] = float(p_b)
-                if ipr_params['j_star'] <= 0 or ipr_params['p_b'] <= 0:
-                    st.error("J* and P_b must be positive.")
-                    post_task_menu("Point of Natural Flow Finder")
-                    return
 
             st.write("Calling plot_natural_flow...")
             fig, intersection_q0, intersection_p = plot_natural_flow(
@@ -794,7 +805,6 @@ def run_natural_flow_finder():
             post_task_menu("Point of Natural Flow Finder")
         except Exception as e:
             st.error(f"Error processing inputs: {str(e)}")
-            post_task_menu("Point of Natural Flow Finder")
 
 # Main UI function to handle initial data upload and mode selection
 def main():
