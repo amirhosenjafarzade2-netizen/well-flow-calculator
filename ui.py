@@ -105,16 +105,17 @@ def apply_theme():
 def render_theme_toggle():
     """Render a theme toggle button positioned at the top-right."""
     current_theme = st.session_state.get('theme', 'light')
+    theme_label = 'Light' if current_theme == 'dark' else 'Dark'
     st.markdown(
-        """
+        f"""
         <style>
-            .theme-toggle-container {
+            .theme-toggle-container {{
                 position: absolute;
                 top: 10px;
                 right: 10px;
                 z-index: 1000;
-            }
-            .theme-toggle-button {
+            }}
+            .theme-toggle-button {{
                 background-color: #4CAF50;
                 color: white;
                 border: none;
@@ -122,18 +123,18 @@ def render_theme_toggle():
                 border-radius: 4px;
                 cursor: pointer;
                 font-size: 14px;
-            }
-            .theme-toggle-button:hover {
+            }}
+            .theme-toggle-button:hover {{
                 background-color: #45a049;
-            }
+            }}
         </style>
         <div class="theme-toggle-container">
             <button class="theme-toggle-button" onclick="streamlitRerun()">
-                Switch to {theme} Mode
+                Switch to {theme_label} Mode
             </button>
         </div>
         <script>
-            function streamlitRerun() {
+            function streamlitRerun() {{
                 // Simulate a click on a hidden Streamlit button to trigger rerun
                 const hiddenButton = document.createElement('button');
                 hiddenButton.style.display = 'none';
@@ -141,16 +142,16 @@ def render_theme_toggle():
                 document.body.appendChild(hiddenButton);
                 hiddenButton.click();
                 document.body.removeChild(hiddenButton);
-            }
+            }}
         </script>
-        """.format(theme='Light' if current_theme == 'dark' else 'Dark'),
+        """,
         unsafe_allow_html=True
     )
     
     # Hidden Streamlit button to handle the rerun
     if st.button("Toggle Theme", key="theme_toggle_hidden"):
         st.session_state.theme = 'dark' if current_theme == 'light' else 'light'
-        st.rerun()
+        st.rerun()()
 
 def run_p2_finder(reference_data, interpolation_ranges, production_rates):
     """UI for p2 Finder: Calculate wellhead and bottomhole pressures and depths."""
