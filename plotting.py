@@ -1,6 +1,3 @@
-# plotting.py
-# Plotting functions for the Well Pressure and Depth Calculator using Plotly
-
 import numpy as np
 import plotly.graph_objects as go
 from config import COLORS, GLR_COLOR_MAP
@@ -40,7 +37,7 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
         y=y1_full,
         mode='lines',
         name=f'GLR curve ({interpolation_status}, Q0={production_rate}, GLR={glr_input})',
-        line=dict(color=line_color, width=2),
+        line=dict(color=line_color, width=2.5),
         hovertemplate='Pressure: %{x:.2f} psi<br>Depth: %{y:.2f} ft'
     ))
     
@@ -72,7 +69,36 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
         yaxis_range=[0, 31000],
         showlegend=True,
         template='plotly_white' if mode == 'color' else 'plotly',
-        hovermode='closest'
+        hovermode='closest',
+        xaxis=dict(
+            tick0=0,
+            dtick=1000,
+            minor=dict(dtick=200),
+            title_standoff=10,
+            side='top'
+        ),
+        yaxis=dict(
+            tick0=0,
+            dtick=1000,
+            minor=dict(dtick=200)
+        ),
+        legend=dict(
+            x=1,
+            y=0.5,
+            xanchor='left',
+            yanchor='middle',
+            bordercolor='black',
+            borderwidth=1
+        ),
+        plot_bgcolor='#F5F5F5' if mode == 'color' else 'white',
+        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white',
+        showgrid=True,
+        gridcolor='#D3D3D3' if mode == 'color' else 'black',
+        gridwidth=1,
+        minor_grids=True,
+        minor_gridcolor='#D3D3D3' if mode == 'color' else 'black',
+        minor_gridwidth=1,
+        minor_gridopacity=0.5 if mode == 'color' else 0.2
     )
     
     logger.info("Pressure vs. depth plot generated successfully.")
@@ -106,7 +132,7 @@ def plot_curves(tpr_points, ipr_points, pr, intersection_q0, intersection_p, glr
         y=tpr_p2,
         mode='lines+markers',
         name=f'TPR (GLR={glr}, conduit={conduit_size})',
-        line=dict(color=tpr_color, width=2),
+        line=dict(color=tpr_color, width=2.5),
         marker=dict(size=8),
         hovertemplate='Q0: %{x:.2f} stb/day<br>P2: %{y:.2f} psi'
     ))
@@ -118,7 +144,7 @@ def plot_curves(tpr_points, ipr_points, pr, intersection_q0, intersection_p, glr
         y=ipr_pwf,
         mode='lines+markers',
         name='IPR',
-        line=dict(color=ipr_color, width=2),
+        line=dict(color=ipr_color, width=2.5),
         marker=dict(size=8),
         hovertemplate='Q0: %{x:.2f} stb/day<br>Pwf: %{y:.2f} psi'
     ))
@@ -143,7 +169,35 @@ def plot_curves(tpr_points, ipr_points, pr, intersection_q0, intersection_p, glr
         yaxis_range=[0, max(pr, 4000) * 1.1],
         showlegend=True,
         template='plotly_white' if mode == 'color' else 'plotly',
-        hovermode='closest'
+        hovermode='closest',
+        xaxis=dict(
+            tick0=0,
+            dtick=100,
+            minor=dict(dtick=20),
+            title_standoff=10
+        ),
+        yaxis=dict(
+            tick0=0,
+            dtick=1000,
+            minor=dict(dtick=200)
+        ),
+        legend=dict(
+            x=0.5,
+            y=-0.3,
+            xanchor='center',
+            yanchor='top',
+            bordercolor='black',
+            borderwidth=1
+        ),
+        plot_bgcolor='#F5F5F5' if mode == 'color' else 'white',
+        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white',
+        showgrid=True,
+        gridcolor='#D3D3D3' if mode == 'color' else 'black',
+        gridwidth=1,
+        minor_grids=True,
+        minor_gridcolor='#D3D3D3' if mode == 'color' else 'black',
+        minor_gridwidth=1,
+        minor_gridopacity=0.5 if mode == 'color' else 0.2
     )
     
     logger.info("TPR/IPR curves plot generated successfully.")
@@ -190,7 +244,7 @@ def plot_fetkovich_log_log(points, pr, c, n, mode='color'):
         y=q_fitted,
         mode='lines',
         name=f'Fitted Curve (n={n:.2f})',
-        line=dict(color=COLORS[1] if mode == 'color' else 'gray'),
+        line=dict(color=COLORS[1] if mode == 'color' else 'gray', width=2.5),
         hovertemplate='ΔP²: %{x:.2f} psi²<br>Q0: %{y:.2f} stb/day'
     ))
     
@@ -203,7 +257,32 @@ def plot_fetkovich_log_log(points, pr, c, n, mode='color'):
         yaxis_type='log',
         showlegend=True,
         template='plotly_white' if mode == 'color' else 'plotly',
-        hovermode='closest'
+        hovermode='closest',
+        xaxis=dict(
+            tick0=0,
+            title_standoff=10
+        ),
+        yaxis=dict(
+            tick0=0,
+            title_standoff=10
+        ),
+        legend=dict(
+            x=0,
+            y=1,
+            xanchor='left',
+            yanchor='top',
+            bordercolor='black',
+            borderwidth=1
+        ),
+        plot_bgcolor='#F5F5F5' if mode == 'color' else 'white',
+        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white',
+        showgrid=True,
+        gridcolor='#D3D3D3' if mode == 'color' else 'black',
+        gridwidth=1,
+        minor_grids=True,
+        minor_gridcolor='#D3D3D3' if mode == 'color' else 'black',
+        minor_gridwidth=1,
+        minor_gridopacity=0.5 if mode == 'color' else 0.2
     )
     
     logger.info("Fetkovich log-log plot generated successfully.")
@@ -248,7 +327,33 @@ def plot_fetkovich_flow_after_flow(points, pr, mode='color'):
         yaxis_autorange='reversed',
         showlegend=True,
         template='plotly_white' if mode == 'color' else 'plotly',
-        hovermode='closest'
+        hovermode='closest',
+        xaxis=dict(
+            tick0=0,
+            title_standoff=10
+        ),
+        yaxis=dict(
+            tick0=0,
+            dtick=1000,
+            minor=dict(dtick=200)
+        ),
+        legend=dict(
+            x=0,
+            y=1,
+            xanchor='left',
+            yanchor='top',
+            bordercolor='black',
+            borderwidth=1
+        ),
+        plot_bgcolor='#F5F5F5' if mode == 'color' else 'white',
+        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white',
+        showgrid=True,
+        gridcolor='#D3D3D3' if mode == 'color' else 'black',
+        gridwidth=1,
+        minor_grids=True,
+        minor_gridcolor='#D3D3D3' if mode == 'color' else 'black',
+        minor_gridwidth=1,
+        minor_gridopacity=0.5 if mode == 'color' else 0.2
     )
     
     logger.info("Fetkovich flow-after-flow plot generated successfully.")
@@ -264,7 +369,7 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
     - mode: 'color' or 'bw' for colorful or black-and-white plots
     Returns Plotly figure or None if invalid.
     """
-    logger.info(f"Plotting GLR graphs for conduit={conduit_size}, production_rate={production_rate}")
+    logger.info(f"Plotting GLR graphs for conduit={conduit_size}, production_rate={production_rate}, mode={mode}")
     
     # Validate inputs
     valid_ranges = get_valid_glr_range(conduit_size, production_rate)
@@ -291,9 +396,17 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
         if (abs(row['conduit_size'] - conduit_size) < 1e-6 and
             abs(row['production_rate'] - production_rate) < 1e-6)
     ]
+    relevant_rows.sort(key=lambda x: x['glr'])
     if not relevant_rows:
         logger.error(f"No reference data for conduit={conduit_size}, production_rate={production_rate}")
         return None
+    
+    # Assign colors for GLR values
+    if mode == 'color':
+        all_glrs = sorted(set(row['glr'] for row in reference_data))
+        for i, glr in enumerate(all_glrs):
+            if glr not in GLR_COLOR_MAP:
+                GLR_COLOR_MAP[glr] = COLORS[i % len(COLORS)]
     
     # Create Plotly figure
     fig = go.Figure()
@@ -301,35 +414,61 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
     # Plot curves for each GLR
     p1_full = np.linspace(0, 4000, 100)
     traces_added = 0
-    for i, row in enumerate(relevant_rows):
+    label_positions = []
+    for row in relevant_rows:
         glr = row['glr']
         coeffs = row['coefficients']
-        y1_full = polynomial(p1_full, coeffs)
-        y1_full = np.where((y1_full >= 0) & (y1_full <= 31000), y1_full, np.nan)
+        p_plot = []
+        y_plot = []
+        for p in p1_full:
+            y = polynomial(p, coeffs)
+            if np.isfinite(y) and 0 <= y <= 31000:
+                p_plot.append(p)
+                y_plot.append(y)
+            else:
+                if y > 31000:
+                    break  # Stop plotting if depth exceeds 31000 ft
         
-        # Check if y1_full has valid data
-        if np.all(np.isnan(y1_full)):
-            logger.warning(f"Skipping GLR={glr} due to invalid polynomial output")
+        if len(p_plot) < 2:
+            logger.warning(f"GLR {glr} has insufficient valid points ({len(p_plot)}). Skipping.")
             continue
         
         # Assign color
-        if mode == 'color':
-            if glr not in GLR_COLOR_MAP:
-                GLR_COLOR_MAP[glr] = COLORS[len(GLR_COLOR_MAP) % len(COLORS)]
-            line_color = GLR_COLOR_MAP[glr]
-        else:
-            line_color = 'black'
+        line_color = GLR_COLOR_MAP.get(glr, 'black') if mode == 'color' else 'black'
         
         # Add curve
         fig.add_trace(go.Scatter(
-            x=p1_full,
-            y=y1_full,
+            x=p_plot,
+            y=y_plot,
             mode='lines',
-            name=f'GLR={glr}',
-            line=dict(color=line_color, width=2),
+            name=f'GLR {int(glr) if glr.is_integer() else glr}' if mode == 'color' else None,
+            line=dict(color=line_color, width=2.5),
             hovertemplate='Pressure: %{x:.2f} psi<br>Depth: %{y:.2f} ft'
         ))
         traces_added += 1
+        
+        # Add text labels for black-and-white mode
+        if mode == 'bw' and p_plot and y_plot:
+            label_value = int(glr/100) if (glr/100).is_integer() else glr/100
+            end_x, end_y = p_plot[-1], y_plot[-1] - 300
+            overlap = False
+            for prev_x, prev_y in label_positions:
+                if abs(end_y - prev_y) < 300 and abs(end_x - prev_x) < 100:
+                    overlap = True
+                    break
+            if overlap:
+                index = max(0, len(p_plot) - 11)
+                end_x, end_y = p_plot[index], y_plot[index] - 300
+            fig.add_annotation(
+                x=end_x,
+                y=end_y,
+                text=f'{label_value}',
+                showarrow=False,
+                font=dict(size=8),
+                xanchor='left',
+                yanchor='middle'
+            )
+            label_positions.append((end_x, end_y))
     
     # Check if any traces were added
     if traces_added == 0:
@@ -338,7 +477,7 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
     
     # Update layout
     fig.update_layout(
-        title=f'Pressure vs. Depth for GLRs (Conduit={conduit_size}, Q0={production_rate})',
+        title=f'GLR Curves (Conduit: {conduit_size} in, Production: {production_rate} stb/day)',
         xaxis_title='Gradient Pressure, psi',
         yaxis_title='Depth, ft',
         yaxis_autorange='reversed',
@@ -346,7 +485,37 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
         yaxis_range=[0, 31000],
         showlegend=True,
         template='plotly_white' if mode == 'color' else 'plotly',
-        hovermode='closest'
+        hovermode='closest',
+        xaxis=dict(
+            tick0=0,
+            dtick=1000,
+            minor=dict(dtick=200),
+            title_standoff=10,
+            side='top'
+        ),
+        yaxis=dict(
+            tick0=0,
+            dtick=1000,
+            minor=dict(dtick=200)
+        ),
+        legend=dict(
+            x=1,
+            y=0.5,
+            xanchor='left',
+            yanchor='middle',
+            bordercolor='black',
+            borderwidth=1,
+            title=dict(text='Multiply GLR line numbers by 100') if mode == 'bw' else None
+        ),
+        plot_bgcolor='#F5F5F5' if mode == 'color' else 'white',
+        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white',
+        showgrid=True,
+        gridcolor='#D3D3D3' if mode == 'color' else 'black',
+        gridwidth=1,
+        minor_grids=True,
+        minor_gridcolor='#D3D3D3' if mode == 'color' else 'black',
+        minor_gridwidth=1,
+        minor_gridopacity=0.5 if mode == 'color' else 0.2
     )
     
     logger.info(f"GLR graphs generated successfully with {traces_added} traces.")
