@@ -5,7 +5,7 @@ from calculations import (calculate_results, calculate_tpr_points, calculate_ipr
 from plotting import (plot_results, plot_curves, plot_fetkovich_log_log,
                      plot_fetkovich_flow_after_flow, plot_glr_graphs)
 from validators import (validate_conduit_size, validate_production_rate, validate_glr,
-                       validate_depth_and_pressure, validate_pressure, get_valid_options)
+                       validate_depth_and_pressure, validate_pressure, get_valid_options, get_valid_glr_range)
 from utils import export_results_to_excel, export_plot_to_png, setup_logging
 from config import COLORS
 
