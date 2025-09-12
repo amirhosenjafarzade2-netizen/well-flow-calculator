@@ -71,10 +71,10 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
         )
         st.session_state.p2_finder_inputs['production_rate'] = production_rate
         
-        valid_glrs = {pr: [float(glr) for glr in glrs] for pr, glrs in valid_glrs.items()}
+        valid_glrs_dict = {pr: [float(glr) for glr in glrs] for pr, glrs in valid_glrs.items()}
         glr_option = st.selectbox(
             "GLR (scf/stb):",
-            ["Custom"] + valid_glrs.get(production_rate, []),
+            ["Custom"] + valid_glrs_dict.get(production_rate, []),
             help="Select a valid GLR or enter a custom value."
         )
         if glr_option == "Custom":
@@ -169,16 +169,20 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                     st.subheader("Pressure vs Depth Plot")
                     st.pyplot(fig)
                     
-                    try:
-                        st.download_button(
-                            label="Download Plot as PNG",
-                            data=export_plot_to_png(fig),
-                            file_name="p2_finder_plot.png",
-                            mime="image/png"
-                        )
-                    except Exception as e:
-                        st.error(f"Failed to export plot as PNG: {str(e)}")
-                        logger.error(f"PNG export failed: {str(e)}")
+                    # Check for valid fig before download
+                    if fig is not None and len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
+                        try:
+                            st.download_button(
+                                label="Download Plot as PNG",
+                                data=export_plot_to_png(fig),
+                                file_name="p2_finder_plot.png",
+                                mime="image/png"
+                            )
+                        except Exception as e:
+                            st.error(f"Failed to export plot as PNG: {str(e)}")
+                            logger.error(f"PNG export failed: {str(e)}")
+                    else:
+                        st.warning("Plot is empty - cannot export.")
     
     st.write("**Calculation Logs**")
     st.write("Any warnings or informational messages will appear here.")
@@ -232,10 +236,10 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
         )
         st.session_state.natural_flow_inputs['production_rate'] = production_rate
         
-        valid_glrs = {pr: [float(glr) for glr in glrs] for pr, glrs in valid_glrs.items()}
+        valid_glrs_dict = {pr: [float(glr) for glr in glrs] for pr, glrs in valid_glrs.items()}
         glr_option = st.selectbox(
             "GLR (scf/stb):",
-            ["Custom"] + valid_glrs.get(production_rate, []),
+            ["Custom"] + valid_glrs_dict.get(production_rate, []),
             key="nf_glr",
             help="Select a valid GLR or enter a custom value."
         )
@@ -291,6 +295,16 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
         help="Choose the IPR calculation method."
     )
     st.session_state.natural_flow_inputs['ipr_method'] = ipr_method
+    
+    c = None
+    n = None
+    q_max = None
+    j_star = None
+    p_b = None
+    q01 = None
+    pwf1 = None
+    q02 = None
+    pwf2 = None
     
     if ipr_method == "Fetkovich":
         col3, col4 = st.columns(2)
@@ -402,18 +416,18 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             else:
                 try:
                     tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, reference_data)
+                    fetkovich_points = []
                     if ipr_method == "Fetkovich":
                         c_val, n_val, ipr_points, fetkovich_points = calculate_ipr_fetkovich(
-                            pr, c=c if c > 0 else None, n=n if n > 0 else None, q01=q01, pwf1=pwf1, q02=q02, pwf2=pwf2
+                            pr, c=c if c is not None and c > 0 else None, n=n if n is not None and n > 0 else None, 
+                            q01=q01, pwf1=pwf1, q02=q02, pwf2=pwf2
                         )
                         c = c_val
                         n = n_val
                     elif ipr_method == "Vogel":
                         _, ipr_points = calculate_ipr_vogel(pr, q_max)
-                        fetkovich_points = []
                     else:  # Composite
                         _, _, ipr_points = calculate_ipr_composite(pr, j_star, p_b)
-                        fetkovich_points = []
                     
                     intersection_q0, intersection_p = find_intersection(tpr_points, ipr_points, pr)
                     
@@ -448,7 +462,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                     
-                    ipr_params_str = f"Pr: {pr} psi, Params: {ipr_method}"
+                    ipr_params_str = f'Pr: {pr} psi, Params: {ipr_method}'
                     fig = plot_curves(
                         tpr_points, ipr_points, intersection_q0, intersection_p, conduit_size, glr, D, pwh, pr, ipr_params_str,
                         mode='color'
@@ -456,47 +470,53 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     st.subheader("TPR and IPR Curves (Intersection indicates Point of Natural Flow)")
                     st.pyplot(fig)
                     
-                    try:
-                        st.download_button(
-                            label="Download TPR/IPR Plot as PNG",
-                            data=export_plot_to_png(fig),
-                            file_name="tpr_ipr_plot.png",
-                            mime="image/png"
-                        )
-                    except Exception as e:
-                        st.error(f"Failed to export plot as PNG: {str(e)}")
-                        logger.error(f"PNG export failed: {str(e)}")
+                    # Check for valid fig before download
+                    if fig is not None and len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
+                        try:
+                            st.download_button(
+                                label="Download TPR/IPR Plot as PNG",
+                                data=export_plot_to_png(fig),
+                                file_name="tpr_ipr_plot.png",
+                                mime="image/png"
+                            )
+                        except Exception as e:
+                            st.error(f"Failed to export plot as PNG: {str(e)}")
+                            logger.error(f"PNG export failed: {str(e)}")
+                    else:
+                        st.warning("Plot is empty - cannot export.")
                     
                     if ipr_method == "Fetkovich" and fetkovich_points:
                         fig_log = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode='color')
-                        if fig_log:
+                        if fig_log is not None and len(fig_log.axes) > 0:
                             st.subheader("Fetkovich Log-Log Plot")
                             st.pyplot(fig_log)
-                            try:
-                                st.download_button(
-                                    label="Download Log-Log Plot as PNG",
-                                    data=export_plot_to_png(fig_log),
-                                    file_name="fetkovich_log_log.png",
-                                    mime="image/png"
-                                )
-                            except Exception as e:
-                                st.error(f"Failed to export plot as PNG: {str(e)}")
-                                logger.error(f"PNG export failed: {str(e)}")
+                            if len(fig_log.axes) > 0 and len(fig_log.axes[0].lines) > 0:
+                                try:
+                                    st.download_button(
+                                        label="Download Log-Log Plot as PNG",
+                                        data=export_plot_to_png(fig_log),
+                                        file_name="fetkovich_log_log.png",
+                                        mime="image/png"
+                                    )
+                                except Exception as e:
+                                    st.error(f"Failed to export plot as PNG: {str(e)}")
+                                    logger.error(f"PNG export failed: {str(e)}")
                         
                         fig_faf = plot_fetkovich_flow_after_flow(fetkovich_points, pr, c, n, mode='color')
-                        if fig_faf:
+                        if fig_faf is not None and len(fig_faf.axes) > 0:
                             st.subheader("Flow After Flow Plot")
                             st.pyplot(fig_faf)
-                            try:
-                                st.download_button(
-                                    label="Download Flow-After-Flow Plot as PNG",
-                                    data=export_plot_to_png(fig_faf),
-                                    file_name="fetkovich_flow_after_flow.png",
-                                    mime="image/png"
-                                )
-                            except Exception as e:
-                                st.error(f"Failed to export plot as PNG: {str(e)}")
-                                logger.error(f"PNG export failed: {str(e)}")
+                            if len(fig_faf.axes) > 0 and len(fig_faf.axes[0].lines) > 0:
+                                try:
+                                    st.download_button(
+                                        label="Download Flow-After-Flow Plot as PNG",
+                                        data=export_plot_to_png(fig_faf),
+                                        file_name="fetkovich_flow_after_flow.png",
+                                        mime="image/png"
+                                    )
+                                except Exception as e:
+                                    st.error(f"Failed to export plot as PNG: {str(e)}")
+                                    logger.error(f"PNG export failed: {str(e)}")
                 
                 except ValueError as e:
                     st.error(f"Calculation failed: {str(e)}")
@@ -558,21 +578,25 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
             else:
                 try:
                     fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode=plot_mode)
-                    if fig:
+                    if fig is not None:
                         st.subheader("GLR Graphs")
                         st.write(f"Conduit Size: {conduit_size} in, Production Rate: {production_rate} stb/day")
                         st.pyplot(fig)
                         
-                        try:
-                            st.download_button(
-                                label="Download GLR Plot as PNG",
-                                data=export_plot_to_png(fig),
-                                file_name=f"glr_plot_conduit{conduit_size}_q0{production_rate}.png",
-                                mime="image/png"
-                            )
-                        except Exception as e:
-                            st.error(f"Failed to export plot as PNG: {str(e)}")
-                            logger.error(f"PNG export failed: {str(e)}")
+                        # Check for valid fig before download
+                        if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
+                            try:
+                                st.download_button(
+                                    label="Download GLR Plot as PNG",
+                                    data=export_plot_to_png(fig),
+                                    file_name=f"glr_plot_conduit{conduit_size}_q0{production_rate}.png",
+                                    mime="image/png"
+                                )
+                            except Exception as e:
+                                st.error(f"Failed to export plot as PNG: {str(e)}")
+                                logger.error(f"PNG export failed: {str(e)}")
+                        else:
+                            st.warning("Plot is empty - cannot export.")
                     else:
                         st.error("No valid GLR curves generated. Please check reference data.")
                         logger.error("No valid GLR curves generated.")
