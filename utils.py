@@ -1,6 +1,3 @@
-# utils.py
-# Shared utility functions for the Well Pressure and Depth Calculator
-
 import numpy as np
 import pandas as pd
 import io
@@ -103,4 +100,29 @@ def export_plot_to_pdf(fig):
         raise RuntimeError("Failed to export plot to PDF: Chrome browser may be missing or misconfigured.")
     except Exception as e:
         logger.error(f"Unexpected error during PDF export: {str(e)}")
+        raise
+
+def export_plot_to_jpg(fig):
+    """
+    Export a Plotly figure to JPG format with high resolution.
+    Returns bytes for Streamlit download.
+    """
+    logger = setup_logging()
+    if fig is None or not hasattr(fig, 'data') or not fig.data:
+        logger.error("Invalid or empty Plotly figure provided for JPG export.")
+        raise ValueError("Cannot export plot: Invalid or empty figure.")
+    
+    try:
+        import kaleido
+        buf = io.BytesIO()
+        fig.write_image(buf, format='jpeg', scale=2)  # ~300 DPI
+        return buf.getvalue()
+    except ImportError:
+        logger.error("Kaleido is not installed, cannot export plot to JPG.")
+        raise ImportError("Kaleido is required for JPG export but is not installed.")
+    except RuntimeError as e:
+        logger.error(f"Failed to export plot to JPG: {str(e)}")
+        raise RuntimeError("Failed to export plot to JPG: Chrome browser may be missing or misconfigured.")
+    except Exception as e:
+        logger.error(f"Unexpected error during JPG export: {str(e)}")
         raise
