@@ -7,6 +7,8 @@ from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 import os
 import re
+import requests
+import io
 
 # Global variable to store reference data using session state
 if 'REFERENCE_DATA' not in st.session_state:
@@ -29,6 +31,28 @@ INTERPOLATION_RANGES = {
 # Available production rates for interpolation
 PRODUCTION_RATES = [50, 100, 200, 400, 600]
 
+# Define a larger set of distinct colors for colorful graphs
+COLORS = [
+    '#1f77b4',  # Blue
+    '#ff7f0e',  # Orange
+    '#2ca02c',  # Green
+    '#d62728',  # Red
+    '#9467bd',  # Purple
+    '#8c564b',  # Brown
+    '#e377c2',  # Pink
+    '#7f7f7f',  # Gray
+    '#bcbd22',  # Olive
+    '#17becf',  # Cyan
+    '#aec7e8',  # Light Blue
+    '#ffbb78',  # Light Orange
+    '#98df8a',  # Light Green
+    '#ff9896',  # Light Red
+    '#c5b0d5',  # Light Purple
+]
+
+# Map GLR values to specific colors for consistency across graphs
+GLR_COLOR_MAP = {}
+
 # Function to parse the name column
 def parse_name(name):
     parts = name.split()
@@ -42,15 +66,18 @@ def parse_name(name):
         st.error(f"Failed to parse reference data name: {name}")
         return None, None, None
 
-# Function to load reference data
+# Function to load reference data from GitHub
 def load_reference_data():
-    st.write("Please upload the reference Excel file (format: name in first column, coefficients in columns 2-7).")
-    uploaded_file = st.file_uploader("Upload Reference Excel", type=["xlsx"])
-    if uploaded_file is None:
-        st.error("No file uploaded. Please upload the file.")
-        return None
+    st.write("Loading reference Excel file from GitHub...")
+    # Replace with your GitHub raw file URL
+    github_url = "https://raw.githubusercontent.com/username/repository/main/referenceexcel.xlsx"
     try:
-        df_ref = pd.read_excel(uploaded_file, header=None, engine='openpyxl')
+        # Fetch the file from GitHub
+        response = requests.get(github_url)
+        response.raise_for_status()  # Check for HTTP errors
+        # Convert the response content to a file-like object
+        file_like_object = io.BytesIO(response.content)
+        df_ref = pd.read_excel(file_like_object, header=None, engine='openpyxl')
         # Validate file structure
         if df_ref.shape[1] < 6:
             st.error("Invalid Excel file: Must have at least 6 columns (name + 5 or 6 coefficients).")
@@ -89,7 +116,11 @@ def load_reference_data():
         if not data_ref:
             st.error("No valid data parsed from the reference Excel file.")
             return None
+        st.success("Reference data loaded successfully from GitHub.")
         return data_ref
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error downloading Excel file from GitHub: {str(e)}")
+        return None
     except Exception as e:
         st.error(f"Error loading reference Excel file: {str(e)}")
         return None
@@ -438,7 +469,6 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
         raise ValueError("Insufficient valid IPR points to plot (need at least 2).")
     return c, n, ipr_points, points
 
-    
 # Modular function to calculate IPR parameters and points using Vogel method
 def calculate_ipr_vogel(pr, q_max):
     pwf_values = np.linspace(0, pr, 15)
@@ -826,6 +856,163 @@ def run_natural_flow_finder():
         except Exception as e:
             st.error(f"Error processing inputs: {str(e)}")
 
+# GLR Graph Drawer task
+def run_glr_graph_drawer():
+    st.header("GLR Graph Drawer")
+    st.write("Generate GLR curves for different conduit sizes and production rates based on polynomial formulas.")
+    graph_style = st.selectbox("Graph Style:", ["Colorful", "Black-and-White"])
+    use_colorful = graph_style == "Colorful"
+
+    if st.button("Generate GLR Graphs"):
+        if st.session_state.REFERENCE_DATA is None:
+            st.error("Reference data not loaded. Please restart the program and upload the reference Excel file.")
+            return
+
+        st.write("Generating GLR graphs...")
+        conduit_sizes = [2.875, 3.5]
+        production_rates = [50, 100, 200, 400, 600]
+        figs = []
+        total_graphs = len(conduit_sizes) * len(production_rates)
+
+        # Assign colors to GLR values for consistency in colorful mode
+        if use_colorful:
+            all_glrs = sorted(set(entry['glr'] for entry in st.session_state.REFERENCE_DATA))
+            for i, glr in enumerate(all_glrs):
+                GLR_COLOR_MAP[glr] = COLORS[i % len(COLORS)]
+        else:
+            all_glrs = sorted(set(entry['glr'] for entry in st.session_state.REFERENCE_DATA))
+            for glr in all_glrs:
+                GLR_COLOR_MAP[glr] = 'black'
+
+        for i, (conduit_size, production_rate) in enumerate([(cs, pr) for cs in conduit_sizes for pr in production_rates]):
+            st.write(f"Generating GLR graph {i+1}/{total_graphs} (Conduit: {conduit_size} in, Production: {production_rate} stb/day)")
+            fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
+            # Set background based on mode
+            fig.patch.set_facecolor('#F5F5F5' if use_colorful else 'white')
+            ax.set_facecolor('#F5F5F5' if use_colorful else 'white')
+            valid_glr_ranges = INTERPOLATION_RANGES.get((conduit_size, production_rate), [])
+            if not valid_glr_ranges:
+                st.warning(f"No valid GLR ranges for conduit {conduit_size} in, production {production_rate} stb/day. Skipping.")
+                plt.close(fig)
+                continue
+            valid_glrs = set()
+            for min_glr, max_glr in valid_glr_ranges:
+                valid_glrs.update(np.arange(int(min_glr), int(max_glr) + 1, 1))
+
+            relevant_rows = [
+                entry for entry in st.session_state.REFERENCE_DATA
+                if (abs(entry['conduit_size'] - conduit_size) < 1e-6 and
+                    abs(entry['production_rate'] - production_rate) < 1e-6)
+            ]
+            relevant_rows.sort(key=lambda x: x['glr'])
+            if not relevant_rows:
+                st.warning(f"No data points found for conduit {conduit_size} in, production {production_rate} stb/day.")
+                plt.close(fig)
+                continue
+
+            st.write(f"Found {len(relevant_rows)} data points with GLRs: {[entry['glr'] for entry in relevant_rows]}")
+            p1_full = np.linspace(0, 4000, 100)
+
+            # Store label positions to check for overlaps in black-and-white mode
+            label_positions = []
+
+            for entry in relevant_rows:
+                glr = entry['glr']
+                if glr not in valid_glrs:
+                    st.warning(f"GLR {glr} is outside valid range {valid_glr_ranges} for conduit {conduit_size}, production {production_rate}. Skipping.")
+                    continue
+                coeffs = entry['coefficients']
+
+                def polynomial(x, coeffs):
+                    try:
+                        return (coeffs['a'] * x**5 +
+                                coeffs['b'] * x**4 +
+                                coeffs['c'] * x**3 +
+                                coeffs['d'] * x**2 +
+                                coeffs['e'] * x +
+                                coeffs['f'])
+                    except Exception:
+                        return np.nan
+
+                p_plot = []
+                y_plot = []
+                for p in p1_full:
+                    y = polynomial(p, coeffs)
+                    if np.isfinite(y) and 0 <= y <= 31000:
+                        p_plot.append(p)
+                        y_plot.append(y)
+                    else:
+                        if y > 31000:
+                            break
+
+                if len(p_plot) < 2:
+                    st.warning(f"GLR {glr} has insufficient valid points ({len(p_plot)}). Skipping.")
+                    continue
+
+                # Plot the line
+                ax.plot(p_plot, y_plot, color=GLR_COLOR_MAP[glr], linewidth=2.5, 
+                        label=f'GLR {int(glr) if glr.is_integer() else glr}' if use_colorful else None)
+
+                # Add end-point label for black-and-white mode
+                if not use_colorful and p_plot and y_plot:
+                    label_value = int(glr/100) if (glr/100).is_integer() else glr/100
+                    # Start with the last point, offset by 300 units upward
+                    end_x, end_y = p_plot[-1], y_plot[-1] - 300
+                    # Check for overlap with previous labels
+                    overlap = False
+                    for prev_x, prev_y in label_positions:
+                        # Check if the new label is too close (within 300 units in y-direction)
+                        if abs(end_y - prev_y) < 300 and abs(end_x - prev_x) < 100:
+                            overlap = True
+                            break
+                    if overlap:
+                        # Move up the curve by selecting an earlier point (e.g., 10 points back)
+                        index = max(0, len(p_plot) - 11)  # Ensure we don't go out of bounds
+                        end_x, end_y = p_plot[index], y_plot[index] - 300
+                    # Add the label
+                    ax.text(end_x, end_y, f'{label_value}', fontsize=8, ha='left', va='center')
+                    # Store the label position
+                    label_positions.append((end_x, end_y))
+
+            if relevant_rows:
+                ax.set_xlabel('Gradient Pressure, psi', fontsize=10)
+                ax.set_ylabel('Depth, ft', fontsize=10)
+                ax.set_xlim(0, 4000)
+                ax.set_ylim(0, 31000)
+                ax.invert_yaxis()
+                # Grid lines: weaker black for black-and-white, light gray for colorful
+                ax.grid(True, which='major', color='#D3D3D3' if use_colorful else 'black', 
+                        alpha=0.5 if use_colorful else 0.3)
+                ax.grid(True, which='minor', color='#D3D3D3' if use_colorful else 'black', 
+                        linestyle='-', alpha=0.5 if use_colorful else 0.2)
+                ax.xaxis.set_major_locator(plt.MultipleLocator(1000))
+                ax.xaxis.set_minor_locator(plt.MultipleLocator(200))
+                ax.yaxis.set_major_locator(plt.MultipleLocator(1000))
+                ax.yaxis.set_minor_locator(plt.MultipleLocator(200))
+                ax.xaxis.set_label_position('top')
+                ax.xaxis.set_ticks_position('top')
+                # Legend: customized for black-and-white mode
+                if use_colorful:
+                    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8, frameon=True, edgecolor='black')
+                else:
+                    ax.legend(['Multiply GLR line\nnumbers by 100'], loc='center left', 
+                             bbox_to_anchor=(1.05, 0.5), fontsize=8, frameon=True, edgecolor='black')
+                ax.set_title(f"GLR Curves (Conduit: {conduit_size} in, Production: {production_rate} stb/day)")
+                figs.append((fig, conduit_size, production_rate))
+            else:
+                st.warning(f"No valid lines plotted for conduit {conduit_size} in, production {production_rate} stb/day.")
+                plt.close(fig)
+
+        if figs:
+            st.subheader("GLR Graphs")
+            for fig, conduit_size, production_rate in figs:
+                st.write(f"Conduit Size: {conduit_size} in, Production Rate: {production_rate} stb/day")
+                st.pyplot(fig)
+        else:
+            st.error("No valid GLR graphs generated. Please check reference data.")
+        
+        post_task_menu("GLR Graph Drawer")
+
 # Main UI function to handle initial data upload and mode selection
 def main():
     st.title("Well Pressure and Depth Calculator")
@@ -833,14 +1020,16 @@ def main():
     if st.session_state.REFERENCE_DATA is None:
         st.session_state.REFERENCE_DATA = load_reference_data()
         if st.session_state.REFERENCE_DATA is None:
-            st.error("Cannot proceed without reference data. Please try again.")
+            st.error("Cannot proceed without reference data. Please check the GitHub URL and try again.")
             return
 
-    mode = st.sidebar.selectbox("Select Mode:", ["p2 Finder", "Point of Natural Flow Finder"])
+    mode = st.sidebar.selectbox("Select Mode:", ["p2 Finder", "Point of Natural Flow Finder", "GLR Graph Drawer"])
     if mode == "p2 Finder":
         run_p2_finder()
-    else:
+    elif mode == "Point of Natural Flow Finder":
         run_natural_flow_finder()
+    else:
+        run_glr_graph_drawer()
 
 if __name__ == "__main__":
     main()
