@@ -1,6 +1,3 @@
-# ui.py
-# Task-specific UI logic for the Well Pressure and Depth Calculator
-
 import streamlit as st
 import numpy as np
 from calculations import (calculate_results, calculate_tpr_points, calculate_ipr_fetkovich,
@@ -9,7 +6,7 @@ from plotting import (plot_results, plot_curves, plot_fetkovich_log_log,
                      plot_fetkovich_flow_after_flow, plot_glr_graphs)
 from validators import (validate_conduit_size, validate_production_rate, validate_glr,
                        validate_depth_and_pressure, validate_pressure, get_valid_options)
-from utils import export_results_to_excel, export_plot_to_png, export_plot_to_pdf, setup_logging
+from utils import export_results_to_excel, export_plot_to_jpg, setup_logging
 from config import COLORS
 
 # Initialize logger
@@ -164,7 +161,6 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
     
     with plot_tab:
         if 'p2_finder_results' in st.session_state and calculate:
-            plot_mode = 'color' if st.session_state.theme == 'light' else 'bw'
             fig = plot_results(
                 p1, st.session_state.p2_finder_results['y1'],
                 st.session_state.p2_finder_results['y2'], st.session_state.p2_finder_results['p2'],
@@ -172,28 +168,25 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                 st.session_state.p2_finder_results['glr_input'],
                 st.session_state.p2_finder_results['interpolation_status'],
                 st.session_state.p2_finder_results['production_rate'],
-                mode=plot_mode
+                mode='color'  # Default to color for p2 Finder
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # Download buttons
-            st.download_button(
-                label="Download Plot as PNG",
-                data=export_plot_to_png(fig),
-                file_name="p2_finder_plot.png",
-                mime="image/png"
-            )
-            st.download_button(
-                label="Download Plot as PDF",
-                data=export_plot_to_pdf(fig),
-                file_name="p2_finder_plot.pdf",
-                mime="application/pdf"
-            )
+            # Download button for JPG
+            try:
+                st.download_button(
+                    label="Download Plot as JPG",
+                    data=export_plot_to_jpg(fig),
+                    file_name="p2_finder_plot.jpg",
+                    mime="image/jpeg"
+                )
+            except Exception as e:
+                st.error(f"Failed to export plot as JPG: {str(e)}")
+                logger.error(f"JPG export failed: {str(e)}")
     
     with logs_tab:
         st.write("**Calculation Logs**")
         st.write("Any warnings or informational messages will appear here.")
-        # Log messages are displayed via validators.py and calculations.py
 
 def run_natural_flow_finder(reference_data, interpolation_ranges, production_rates):
     """UI for Natural Flow Finder: Find natural flow rate by intersecting TPR and IPR."""
@@ -443,7 +436,6 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
     
     with plot_tab:
         if 'natural_flow_results' in st.session_state and calculate:
-            plot_mode = 'color' if st.session_state.theme == 'light' else 'bw'
             fig = plot_curves(
                 st.session_state.natural_flow_results['tpr_points'],
                 st.session_state.natural_flow_results['ipr_points'],
@@ -452,45 +444,51 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 st.session_state.natural_flow_results['intersection_p'],
                 st.session_state.natural_flow_results['glr'],
                 st.session_state.natural_flow_results['conduit_size'],
-                mode=plot_mode
+                mode='color'  # Default to color for Natural Flow Finder
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # Download plot
-            st.download_button(
-                label="Download TPR/IPR Plot as PNG",
-                data=export_plot_to_png(fig),
-                file_name="tpr_ipr_plot.png",
-                mime="image/png"
-            )
-            st.download_button(
-                label="Download TPR/IPR Plot as PDF",
-                data=export_plot_to_pdf(fig),
-                file_name="tpr_ipr_plot.pdf",
-                mime="application/pdf"
-            )
+            # Download plot as JPG
+            try:
+                st.download_button(
+                    label="Download TPR/IPR Plot as JPG",
+                    data=export_plot_to_jpg(fig),
+                    file_name="tpr_ipr_plot.jpg",
+                    mime="image/jpeg"
+                )
+            except Exception as e:
+                st.error(f"Failed to export plot as JPG: {str(e)}")
+                logger.error(f"JPG export failed: {str(e)}")
             
             # Fetkovich-specific plots
             if ipr_method == "Fetkovich" and st.session_state.natural_flow_results['fetkovich_points']:
                 c, n, _, _ = calculate_ipr_fetkovich(pr, q01=q01, pwf1=pwf1, q02=q02, pwf2=pwf2)
-                fig_log = plot_fetkovich_log_log(st.session_state.natural_flow_results['fetkovich_points'], pr, c, n, mode=plot_mode)
+                fig_log = plot_fetkovich_log_log(st.session_state.natural_flow_results['fetkovich_points'], pr, c, n, mode='color')
                 if fig_log:
                     st.plotly_chart(fig_log, use_container_width=True)
-                    st.download_button(
-                        label="Download Log-Log Plot as PNG",
-                        data=export_plot_to_png(fig_log),
-                        file_name="fetkovich_log_log.png",
-                        mime="image/png"
-                    )
-                fig_faf = plot_fetkovich_flow_after_flow(st.session_state.natural_flow_results['fetkovich_points'], pr, mode=plot_mode)
+                    try:
+                        st.download_button(
+                            label="Download Log-Log Plot as JPG",
+                            data=export_plot_to_jpg(fig_log),
+                            file_name="fetkovich_log_log.jpg",
+                            mime="image/jpeg"
+                        )
+                    except Exception as e:
+                        st.error(f"Failed to export plot as JPG: {str(e)}")
+                        logger.error(f"JPG export failed: {str(e)}")
+                fig_faf = plot_fetkovich_flow_after_flow(st.session_state.natural_flow_results['fetkovich_points'], pr, mode='color')
                 if fig_faf:
                     st.plotly_chart(fig_faf, use_container_width=True)
-                    st.download_button(
-                        label="Download Flow-After-Flow Plot as PNG",
-                        data=export_plot_to_png(fig_faf),
-                        file_name="fetkovich_flow_after_flow.png",
-                        mime="image/png"
-                    )
+                    try:
+                        st.download_button(
+                            label="Download Flow-After-Flow Plot as JPG",
+                            data=export_plot_to_jpg(fig_faf),
+                            file_name="fetkovich_flow_after_flow.jpg",
+                            mime="image/jpeg"
+                        )
+                    except Exception as e:
+                        st.error(f"Failed to export plot as JPG: {str(e)}")
+                        logger.error(f"JPG export failed: {str(e)}")
     
     with logs_tab:
         st.write("**Calculation Logs**")
@@ -508,7 +506,7 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
         }
     
     # Create tabs
-    input_tab, plot_tab, logs_tab = st.tabs(["Inputs", "Plot", "Logs"])
+    input_tab, plot_tab, logs_tab = st.tabs(["Inputs", "Plots", "Logs"])
     
     with input_tab:
         st.subheader("GLR Graph Drawer Inputs")
@@ -536,6 +534,14 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
             )
             st.session_state.glr_graph_inputs['production_rate'] = production_rate
         
+        graph_style = st.selectbox(
+            "Graph Style:",
+            ["Colorful", "Black-and-White"],
+            key="glr_graph_style",
+            help="Choose colorful or black-and-white GLR graphs."
+        )
+        plot_mode = "color" if graph_style == "Colorful" else "bw"
+        
         plot = st.button("Generate GLR Graphs", key="glr_plot")
     
     with plot_tab:
@@ -556,46 +562,40 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                     logger.error(f"GLR Graph Drawer errors: {errors}")
                 else:
                     try:
-                        theme = st.get_option("theme.base")  # "light" or "dark"
-                        plot_mode = 'color' if theme == 'light' else 'bw'
-                        fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode=plot_mode)
-                        
-                        if fig is None or not hasattr(fig, 'data') or not fig.data:
-                            st.error("Failed to generate GLR graphs: Invalid or empty figure returned.")
-                            logger.error("plot_glr_graphs returned an invalid or empty figure.")
+                        figs = []
+                        conduit_sizes = [2.875, 3.5]
+                        production_rates_list = [50, 100, 200, 400, 600]
+                        total_graphs = len(conduit_sizes) * len(production_rates_list)
+
+                        for i, (cs, pr) in enumerate([(cs, pr) for cs in conduit_sizes for pr in production_rates_list]):
+                            st.write(f"Generating GLR graph {i+1}/{total_graphs} (Conduit: {cs} in, Production: {pr} stb/day)")
+                            fig = plot_glr_graphs(reference_data, cs, pr, mode=plot_mode)
+                            if fig and hasattr(fig, 'data') and fig.data:
+                                figs.append((fig, cs, pr))
+                            else:
+                                st.warning(f"No valid GLR curves for conduit {cs} in, production {pr} stb/day.")
+                                logger.warning(f"No valid GLR curves for conduit {cs}, production {pr}")
+
+                        if figs:
+                            st.subheader("GLR Graphs")
+                            for fig, cs, pr in figs:
+                                st.write(f"**Conduit Size**: {cs} in, **Production Rate**: {pr} stb/day")
+                                st.plotly_chart(fig, use_container_width=True)
+                                try:
+                                    st.download_button(
+                                        label="Download GLR Plot as JPG",
+                                        data=export_plot_to_jpg(fig),
+                                        file_name=f"glr_plot_conduit{cs}_q0{pr}.jpg",
+                                        mime="image/jpeg"
+                                    )
+                                except Exception as e:
+                                    st.error(f"Failed to export plot as JPG: {str(e)}")
+                                    logger.error(f"JPG export failed: {str(e)}")
+                            st.session_state.glr_graph_results = {'figs': figs}
                         else:
-                            st.plotly_chart(fig, use_container_width=True)
-                            st.session_state.glr_graph_results = {'fig': fig}
-                            
-                            # Check if kaleido is available and handle export
-                            try:
-                                import kaleido
-                                # Download plot as PNG
-                                try:
-                                    st.download_button(
-                                        label="Download GLR Plot as PNG",
-                                        data=export_plot_to_png(fig),
-                                        file_name="glr_plot.png",
-                                        mime="image/png"
-                                    )
-                                except Exception as e:
-                                    st.error("Failed to export plot as PNG: Chrome browser may be missing or misconfigured.")
-                                    logger.error(f"PNG export failed: {str(e)}")
-                                
-                                # Download plot as PDF
-                                try:
-                                    st.download_button(
-                                        label="Download GLR Plot as PDF",
-                                        data=export_plot_to_pdf(fig),
-                                        file_name="glr_plot.pdf",
-                                        mime="application/pdf"
-                                    )
-                                except Exception as e:
-                                    st.error("Failed to export plot as PDF: Chrome browser may be missing or misconfigured.")
-                                    logger.error(f"PDF export failed: {str(e)}")
-                            except ImportError:
-                                st.error("Kaleido is not installed. Image export is not available.")
-                                logger.error("Kaleido package is missing, cannot export plot to PNG/PDF.")
+                            st.error("No valid GLR graphs generated. Please check reference data.")
+                            logger.error("No valid GLR graphs generated.")
+                    
                     except Exception as e:
                         st.error(f"Failed to generate GLR graphs: {str(e)}")
                         logger.error(f"GLR Graph Drawer failed: {str(e)}")
