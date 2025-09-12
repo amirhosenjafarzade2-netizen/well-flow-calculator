@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-pip install streamlit pandas numpy scipy matplotlib openpyxl
 
 import streamlit as st
 import pandas as pd
