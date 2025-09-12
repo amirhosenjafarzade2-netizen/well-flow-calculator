@@ -1,4 +1,4 @@
-chromium-browser
+chromium
 libcairo2
 libpango-1.0-0
 libpangocairo-1.0-0
