@@ -42,8 +42,8 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
     if 'p2_finder_inputs' not in st.session_state:
         st.session_state.p2_finder_inputs = {
             'conduit_size': 2.875,
-            'production_rate': 100.0,  # Changed to float
-            'glr': 200.0,              # Changed to float
+            'production_rate': 100.0,
+            'glr': 200.0,
             'p1': 1000.0,
             'D': 1000.0
         }
@@ -66,7 +66,6 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
             st.session_state.p2_finder_inputs['conduit_size'] = conduit_size
             
             valid_prates, valid_glrs = get_valid_options(conduit_size)
-            # Convert valid_prates to float for consistency
             valid_prates = [float(pr) for pr in valid_prates]
             production_rate = st.selectbox(
                 "Production Rate (stb/day):",
@@ -76,7 +75,6 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
             )
             st.session_state.p2_finder_inputs['production_rate'] = production_rate
             
-            # Convert valid_glrs to float
             valid_glrs = {pr: [float(glr) for glr in glrs] for pr, glrs in valid_glrs.items()}
             glr_option = st.selectbox(
                 "GLR (scf/stb):",
@@ -87,7 +85,7 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                 glr = st.number_input(
                     "Custom GLR:",
                     min_value=0.0,
-                    value=float(st.session_state.p2_finder_inputs['glr']),  # Ensure float
+                    value=float(st.session_state.p2_finder_inputs['glr']),
                     step=100.0,
                     help="Enter a custom GLR value (must be within valid ranges)."
                 )
@@ -101,7 +99,7 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                 "Wellhead Pressure, p1 (psi):",
                 min_value=0.0,
                 max_value=4000.0,
-                value=float(st.session_state.p2_finder_inputs['p1']),  # Ensure float
+                value=float(st.session_state.p2_finder_inputs['p1']),
                 step=10.0,
                 help="Enter the wellhead pressure (0 to 4000 psi)."
             )
@@ -111,7 +109,7 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                 "Well Length, D (ft):",
                 min_value=0.0,
                 max_value=31000.0,
-                value=float(st.session_state.p2_finder_inputs['D']),  # Ensure float
+                value=float(st.session_state.p2_finder_inputs['D']),
                 step=100.0,
                 help="Enter the well length (y1 + D ≤ 31000 ft)."
             )
@@ -130,7 +128,6 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                     errors.append("Invalid production rate.")
                 if not validate_glr(conduit_size, production_rate, glr):
                     errors.append(f"Invalid GLR. Valid ranges: {get_valid_glr_range(conduit_size, production_rate)}")
-                    # Auto-correct GLR
                     ranges = interpolation_ranges.get((conduit_size, production_rate), [])
                     if ranges:
                         min_glr, max_glr = ranges[0]
@@ -146,7 +143,6 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                         st.error(error)
                     logger.error(f"p2 Finder errors: {errors}")
                 else:
-                    # Perform calculation
                     result = calculate_results(conduit_size, production_rate, glr, p1, D, reference_data)
                     if result[0] is None:
                         st.error("Calculation failed. Please check inputs and try again.")
@@ -172,11 +168,10 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                 st.session_state.p2_finder_results['glr_input'],
                 st.session_state.p2_finder_results['interpolation_status'],
                 st.session_state.p2_finder_results['production_rate'],
-                mode='color'  # Default to color for p2 Finder
+                mode='color'
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # Download button for JPG
             try:
                 st.download_button(
                     label="Download Plot as JPG",
@@ -196,12 +191,11 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
     """UI for Natural Flow Finder: Find natural flow rate by intersecting TPR and IPR."""
     logger.info("Running Natural Flow Finder UI")
     
-    # Initialize session state for inputs
     if 'natural_flow_inputs' not in st.session_state:
         st.session_state.natural_flow_inputs = {
             'conduit_size': 2.875,
-            'production_rate': 100.0,  # Changed to float
-            'glr': 200.0,              # Changed to float
+            'production_rate': 100.0,
+            'glr': 200.0,
             'pwh': 1000.0,
             'D': 1000.0,
             'pr': 2000.0,
@@ -217,7 +211,6 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             'pwf2': 1000.0
         }
     
-    # Create tabs
     input_tab, results_tab, plot_tab, logs_tab = st.tabs(["Inputs", "Results", "Plots", "Logs"])
     
     with input_tab:
@@ -236,7 +229,6 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             st.session_state.natural_flow_inputs['conduit_size'] = conduit_size
             
             valid_prates, valid_glrs = get_valid_options(conduit_size)
-            # Convert valid_prates to float for consistency
             valid_prates = [float(pr) for pr in valid_prates]
             production_rate = st.selectbox(
                 "Production Rate (stb/day):",
@@ -247,7 +239,6 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             )
             st.session_state.natural_flow_inputs['production_rate'] = production_rate
             
-            # Convert valid_glrs to float
             valid_glrs = {pr: [float(glr) for glr in glrs] for pr, glrs in valid_glrs.items()}
             glr_option = st.selectbox(
                 "GLR (scf/stb):",
@@ -259,7 +250,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 glr = st.number_input(
                     "Custom GLR:",
                     min_value=0.0,
-                    value=float(st.session_state.natural_flow_inputs['glr']),  # Ensure float
+                    value=float(st.session_state.natural_flow_inputs['glr']),
                     step=100.0,
                     key="nf_custom_glr",
                     help="Enter a custom GLR value (must be within valid ranges)."
@@ -273,7 +264,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 "Wellhead Pressure, pwh (psi):",
                 min_value=0.0,
                 max_value=4000.0,
-                value=float(st.session_state.natural_flow_inputs['pwh']),  # Ensure float
+                value=float(st.session_state.natural_flow_inputs['pwh']),
                 step=10.0,
                 help="Enter the wellhead pressure (0 to 4000 psi)."
             )
@@ -283,7 +274,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 "Well Length, D (ft):",
                 min_value=0.0,
                 max_value=31000.0,
-                value=float(st.session_state.natural_flow_inputs['D']),  # Ensure float
+                value=float(st.session_state.natural_flow_inputs['D']),
                 step=100.0,
                 help="Enter the well length (y1 + D ≤ 31000 ft)."
             )
@@ -293,7 +284,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 "Reservoir Pressure, Pr (psi):",
                 min_value=0.0,
                 max_value=4000.0,
-                value=float(st.session_state.natural_flow_inputs['pr']),  # Ensure float
+                value=float(st.session_state.natural_flow_inputs['pr']),
                 step=10.0,
                 help="Enter the reservoir pressure (0 to 4000 psi)."
             )
@@ -314,7 +305,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 c = st.number_input(
                     "C (optional):",
                     min_value=0.0,
-                    value=float(st.session_state.natural_flow_inputs['c']),  # Ensure float
+                    value=float(st.session_state.natural_flow_inputs['c']),
                     step=0.00001,
                     format="%.6f",
                     help="Fetkovich C parameter (leave blank to calculate)."
@@ -323,7 +314,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     "n (optional):",
                     min_value=0.0,
                     max_value=2.0,
-                    value=float(st.session_state.natural_flow_inputs['n']),  # Ensure float
+                    value=float(st.session_state.natural_flow_inputs['n']),
                     step=0.1,
                     help="Fetkovich n parameter (leave blank to calculate)."
                 )
@@ -331,25 +322,25 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 q01 = st.number_input(
                     "Q01 (stb/day):",
                     min_value=0.0,
-                    value=float(st.session_state.natural_flow_inputs['q01']),  # Ensure float
+                    value=float(st.session_state.natural_flow_inputs['q01']),
                     step=10.0
                 )
                 pwf1 = st.number_input(
                     "Pwf1 (psi):",
                     min_value=0.0,
-                    value=float(st.session_state.natural_flow_inputs['pwf1']),  # Ensure float
+                    value=float(st.session_state.natural_flow_inputs['pwf1']),
                     step=10.0
                 )
                 q02 = st.number_input(
                     "Q02 (stb/day):",
                     min_value=0.0,
-                    value=float(st.session_state.natural_flow_inputs['q02']),  # Ensure float
+                    value=float(st.session_state.natural_flow_inputs['q02']),
                     step=10.0
                 )
                 pwf2 = st.number_input(
                     "Pwf2 (psi):",
                     min_value=0.0,
-                    value=float(st.session_state.natural_flow_inputs['pwf2']),  # Ensure float
+                    value=float(st.session_state.natural_flow_inputs['pwf2']),
                     step=10.0
                 )
             st.session_state.natural_flow_inputs.update({'c': c, 'n': n, 'q01': q01, 'pwf1': pwf1, 'q02': q02, 'pwf2': pwf2})
@@ -357,7 +348,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             q_max = st.number_input(
                 "Q_max (stb/day):",
                 min_value=0.0,
-                value=float(st.session_state.natural_flow_inputs['q_max']),  # Ensure float
+                value=float(st.session_state.natural_flow_inputs['q_max']),
                 step=10.0,
                 help="Maximum production rate for Vogel method."
             )
@@ -368,7 +359,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 j_star = st.number_input(
                     "J* (stb/day/psi):",
                     min_value=0.0,
-                    value=float(st.session_state.natural_flow_inputs['j_star']),  # Ensure float
+                    value=float(st.session_state.natural_flow_inputs['j_star']),
                     step=0.1,
                     help="Productivity index for Composite method."
                 )
@@ -376,7 +367,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 p_b = st.number_input(
                     "Bubble Point Pressure, P_b (psi):",
                     min_value=0.0,
-                    value=float(st.session_state.natural_flow_inputs['p_b']),  # Ensure float
+                    value=float(st.session_state.natural_flow_inputs['p_b']),
                     step=10.0,
                     help="Bubble point pressure for Composite method."
                 )
@@ -387,7 +378,6 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
     with results_tab:
         if calculate:
             with st.spinner("Calculating..."):
-                # Validate inputs
                 errors = []
                 if not validate_conduit_size(conduit_size):
                     errors.append("Invalid conduit size.")
@@ -413,10 +403,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     logger.error(f"Natural Flow Finder errors: {errors}")
                 else:
                     try:
-                        # Calculate TPR points
                         tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, reference_data)
-                        
-                        # Calculate IPR points
                         if ipr_method == "Fetkovich":
                             c, n, ipr_points, fetkovich_points = calculate_ipr_fetkovich(
                                 pr, c, n, q01, pwf1, q02, pwf2
@@ -428,10 +415,8 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                             j_star, p_b, ipr_points = calculate_ipr_composite(pr, j_star, p_b)
                             fetkovich_points = []
                         
-                        # Find intersection
                         intersection_q0, intersection_p = find_intersection(tpr_points, ipr_points, pr)
                         
-                        # Display results
                         if intersection_q0 is not None and intersection_p is not None:
                             st.write(f"**Natural Flow Rate**: {intersection_q0:.2f} stb/day")
                             st.write(f"**Flowing Bottomhole Pressure**: {intersection_p:.2f} psi")
@@ -449,7 +434,6 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                             'fetkovich_points': fetkovich_points
                         }
                         
-                        # Download results
                         if tpr_points and ipr_points:
                             st.download_button(
                                 label="Download Results as Excel",
@@ -472,11 +456,10 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 st.session_state.natural_flow_results['intersection_p'],
                 st.session_state.natural_flow_results['glr'],
                 st.session_state.natural_flow_results['conduit_size'],
-                mode='color'  # Default to color for Natural Flow Finder
+                mode='color'
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # Download plot as JPG
             try:
                 st.download_button(
                     label="Download TPR/IPR Plot as JPG",
@@ -488,7 +471,6 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 st.error(f"Failed to export plot as JPG: {str(e)}")
                 logger.error(f"JPG export failed: {str(e)}")
             
-            # Fetkovich-specific plots
             if ipr_method == "Fetkovich" and st.session_state.natural_flow_results['fetkovich_points']:
                 c, n, _, _ = calculate_ipr_fetkovich(pr, q01=q01, pwf1=pwf1, q02=q02, pwf2=pwf2)
                 fig_log = plot_fetkovich_log_log(st.session_state.natural_flow_results['fetkovich_points'], pr, c, n, mode='color')
@@ -526,14 +508,12 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
     """UI for GLR Graph Drawer: Plot pressure vs. depth for all GLRs."""
     logger.info("Running GLR Graph Drawer UI")
     
-    # Initialize session state for inputs
     if 'glr_graph_inputs' not in st.session_state:
         st.session_state.glr_graph_inputs = {
             'conduit_size': 2.875,
-            'production_rate': 100.0  # Changed to float
+            'production_rate': 100.0
         }
     
-    # Create tabs
     input_tab, plot_tab, logs_tab = st.tabs(["Inputs", "Plots", "Logs"])
     
     with input_tab:
@@ -553,7 +533,7 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
             
         with col2:
             valid_prates, _ = get_valid_options(conduit_size)
-            valid_prates = [float(pr) for pr in valid_prates]  # Convert to float
+            valid_prates = [float(pr) for pr in valid_prates]
             production_rate = st.selectbox(
                 "Production Rate (stb/day):",
                 valid_prates,
@@ -576,7 +556,6 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
     with plot_tab:
         if plot:
             with st.spinner("Generating graphs..."):
-                # Validate inputs
                 errors = []
                 if not validate_conduit_size(conduit_size):
                     errors.append("Invalid conduit size.")
@@ -593,7 +572,7 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                     try:
                         figs = []
                         conduit_sizes = [2.875, 3.5]
-                        production_rates_list = [50.0, 100.0, 200.0, 400.0, 600.0]  # Ensure float
+                        production_rates_list = [50.0, 100.0, 200.0, 400.0, 600.0]
                         total_graphs = len(conduit_sizes) * len(production_rates_list)
 
                         for i, (cs, pr) in enumerate([(cs, pr) for cs in conduit_sizes for pr in production_rates_list]):
