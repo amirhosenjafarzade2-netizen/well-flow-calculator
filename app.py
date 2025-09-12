@@ -5,9 +5,11 @@ import streamlit as st
 from data_loader import load_reference_data
 from utils import setup_logging
 from config import INTERPOLATION_RANGES, PRODUCTION_RATES
+from ui import run_p2_finder, run_natural_flow_finder, run_glr_graph_drawer  # moved imports here
 
 # Initialize logger
 logger = setup_logging()
+
 
 def main():
     """
@@ -15,42 +17,35 @@ def main():
     Initializes reference data and handles mode selection.
     """
     st.title("Well Pressure and Depth Calculator")
-    
-    # Initialize session state for reference data
-    if 'REFERENCE_DATA' not in st.session_state:
-        st.session_state.REFERENCE_DATA = None
-    
-    # Load reference data
-    logger.info("Initializing application and loading reference data...")
-    if st.session_state.REFERENCE_DATA is None:
+
+    # Load reference data into session state (only once)
+    if "REFERENCE_DATA" not in st.session_state:
+        logger.info("Loading reference data...")
         reference_data = load_reference_data()
         if reference_data is None:
-            st.error("Failed to initialize application: Unable to load reference data. Please check the Excel file or internet connection.")
+            st.error("Failed to initialize application: Unable to load reference data. "
+                     "Please check the Excel file or internet connection.")
             logger.error("Application initialization failed due to missing reference data.")
             return
         st.session_state.REFERENCE_DATA = reference_data
-        logger.info("Reference data initialized in session state.")
-    
+        logger.info("Reference data loaded successfully.")
+
     # Mode selection
     st.header("Select Calculation Mode")
     mode_options = ["p2 Finder", "Natural Flow Finder", "GLR Graph Drawer"]
     mode = st.selectbox("Choose a mode:", mode_options, key="mode_select")
-    
+
     # Create tabs for cleaner layout
     tabs = st.tabs(["Calculation", "Help"])
-    
+
     with tabs[0]:
-        # Delegate to ui.py functions (to be implemented)
         if mode == "p2 Finder":
-            from ui import run_p2_finder
             run_p2_finder(st.session_state.REFERENCE_DATA, INTERPOLATION_RANGES, PRODUCTION_RATES)
         elif mode == "Natural Flow Finder":
-            from ui import run_natural_flow_finder
             run_natural_flow_finder(st.session_state.REFERENCE_DATA, INTERPOLATION_RANGES, PRODUCTION_RATES)
         elif mode == "GLR Graph Drawer":
-            from ui import run_glr_graph_drawer
             run_glr_graph_drawer(st.session_state.REFERENCE_DATA, INTERPOLATION_RANGES, PRODUCTION_RATES)
-    
+
     with tabs[1]:
         st.write("### Help")
         st.write("""
@@ -68,6 +63,7 @@ def main():
         
         **Contact**: For issues, check the GitHub repository or contact support.
         """)
+
 
 if __name__ == "__main__":
     main()
