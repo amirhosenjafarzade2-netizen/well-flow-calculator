@@ -435,6 +435,7 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
     if len(ipr_points) < 2:
         raise ValueError("Insufficient valid IPR points to plot (need at least 2).")
     return c, n, ipr_points, points
+    
 # Modular function to calculate IPR parameters and points using Vogel method
 def calculate_ipr_vogel(pr, q_max):
     pwf_values = np.linspace(0, pr, 15)
@@ -469,7 +470,8 @@ def find_intersection(tpr_interp, ipr_func, pr):
             q0_ipr = ipr_func(p)
             q0_tpr = tpr_interp(p)
             return q0_ipr - q0_tpr
-        except Exception:
+        except Exception as e:
+            st.write(f"Intersection function error at p={p}: {str(e)}")
             return np.inf
 
     # Feasibility check: Check if curves cross by evaluating sign change in [0, pr]
@@ -478,21 +480,25 @@ def find_intersection(tpr_interp, ipr_func, pr):
     f_low = intersection_func(p_low)
     f_high = intersection_func(p_high)
     if not (np.isfinite(f_low) and np.isfinite(f_high)) or f_low * f_high > 0:
+        st.write(f"No sign change detected: f_low={f_low:.2f}, f_high={f_high:.2f}")
         return None, None  # No sign change, no intersection
 
     # Use bisect to find root
     try:
-        intersection_p = bisect(intersection_func, p_low, p_high, maxiter=100)
+        intersection_p = bisect(intersection_func, p_low, p_high, maxiter=200)
         q0_ipr = ipr_func(intersection_p)
         q0_tpr = tpr_interp(intersection_p)
-        # Relaxed tolerance and production rate limit
+        # Further relaxed tolerance and production rate limit
         if (0 <= intersection_p <= max(pr, 4000) and 
-            0 <= q0_ipr <= 650 and 0 <= q0_tpr <= 650 and 
-            abs(q0_ipr - q0_tpr) < 1e-1):
+            0 <= q0_ipr <= 700 and 0 <= q0_tpr <= 700 and 
+            abs(q0_ipr - q0_tpr) < 0.5):
+            st.write(f"Intersection found: p={intersection_p:.2f}, q0_ipr={q0_ipr:.2f}, q0_tpr={q0_tpr:.2f}, diff={abs(q0_ipr - q0_tpr):.4f}")
             return q0_ipr, intersection_p
         else:
+            st.write(f"Intersection rejected: p={intersection_p:.2f}, q0_ipr={q0_ipr:.2f}, q0_tpr={q0_tpr:.2f}, diff={abs(q0_ipr - q0_tpr):.4f}")
             return None, None
-    except Exception:
+    except Exception as e:
+        st.write(f"Bisect failed: {str(e)}")
         return None, None
 
 # Modular function to plot TPR and IPR curves
@@ -553,10 +559,12 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
         st.error(str(e))
         return None, None, None
 
-    # Interpolate TPR curve
+    # Interpolate TPR curve with bounded extrapolation
     try:
         tpr_q0, tpr_p2 = zip(*tpr_points)
-        tpr_interp = interp1d(tpr_p2, tpr_q0, kind='linear', fill_value='extrapolate')
+        # Use bounds_error=True and set fill_value to min/max production rates
+        tpr_interp = interp1d(tpr_p2, tpr_q0, kind='linear', bounds_error=True, 
+                             fill_value=(min(tpr_q0), max(tpr_q0)))
     except Exception as e:
         st.error(f"Error interpolating TPR curve: {str(e)}")
         return None, None, None
