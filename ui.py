@@ -14,29 +14,150 @@ logger = setup_logging()
 
 def apply_theme():
     """Apply dark or light theme based on session state."""
-    if st.session_state.get('theme', 'light') == 'dark':
+    theme = st.session_state.get('theme', 'light')
+    
+    if theme == 'dark':
         st.markdown("""
             <style>
                 .stApp {
-                    background-color: #1e1e1e;
-                    color: #ffffff;
+                    background-color: #1e1e1e !important;
+                    color: #ffffff !important;
+                    padding-top: 50px !important; /* Add padding to avoid overlap with toggle button */
                 }
-                .stTextInput > div > div > input, .stSelectbox > div > div > select {
-                    background-color: #333333;
-                    color: #ffffff;
+                .stTextInput > div > div > input,
+                .stNumberInput > div > div > input,
+                .stSelectbox > div > div > select {
+                    background-color: #333333 !important;
+                    color: #ffffff !important;
+                    border: 1px solid #555555 !important;
                 }
                 .stButton > button {
-                    background-color: #4CAF50;
-                    color: white;
+                    background-color: #4CAF50 !important;
+                    color: white !important;
+                    border: 1px solid #4CAF50 !important;
+                }
+                .stButton > button:hover {
+                    background-color: #45a049 !important;
+                }
+                .stMarkdown, .stMarkdown p, .stMarkdown div {
+                    color: #ffffff !important;
+                }
+                .stSelectbox > div > div > div,
+                .stNumberInput > div > div > div,
+                .stTextInput > div > div > div {
+                    color: #ffffff !important;
+                }
+                /* Ensure sidebar follows theme */
+                .css-1d391kg, .css-1v3fvcr {
+                    background-color: #1e1e1e !important;
+                    color: #ffffff !important;
+                }
+                /* Ensure headers and labels are styled */
+                h1, h2, h3, h4, h5, h6, label {
+                    color: #ffffff !important;
                 }
             </style>
         """, unsafe_allow_html=True)
         return 'plotly_dark'
-    return 'plotly_white'
+    else:
+        st.markdown("""
+            <style>
+                .stApp {
+                    background-color: #ffffff !important;
+                    color: #000000 !important;
+                    padding-top: 50px !important; /* Add padding to avoid overlap with toggle button */
+                }
+                .stTextInput > div > div > input,
+                .stNumberInput > div > div > input,
+                .stSelectbox > div > div > select {
+                    background-color: #ffffff !important;
+                    color: #000000 !important;
+                    border: 1px solid #cccccc !important;
+                }
+                .stButton > button {
+                    background-color: #4CAF50 !important;
+                    color: white !important;
+                    border: 1px solid #4CAF50 !important;
+                }
+                .stButton > button:hover {
+                    background-color: #45a049 !important;
+                }
+                .stMarkdown, .stMarkdown p, .stMarkdown div {
+                    color: #000000 !important;
+                }
+                .stSelectbox > div > div > div,
+                .stNumberInput > div > div > div,
+                .stTextInput > div > div > div {
+                    color: #000000 !important;
+                }
+                /* Ensure sidebar follows theme */
+                .css-1d391kg, .css-1v3fvcr {
+                    background-color: #ffffff !important;
+                    color: #000000 !important;
+                }
+                h1, h2, h3, h4, h5, h6, label {
+                    color: #000000 !important;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+        return 'plotly_white'
+
+def render_theme_toggle():
+    """Render a theme toggle button positioned at the top-right."""
+    current_theme = st.session_state.get('theme', 'light')
+    st.markdown(
+        """
+        <style>
+            .theme-toggle-container {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                z-index: 1000;
+            }
+            .theme-toggle-button {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+            }
+            .theme-toggle-button:hover {
+                background-color: #45a049;
+            }
+        </style>
+        <div class="theme-toggle-container">
+            <button class="theme-toggle-button" onclick="streamlitRerun()">
+                Switch to {theme} Mode
+            </button>
+        </div>
+        <script>
+            function streamlitRerun() {
+                // Simulate a click on a hidden Streamlit button to trigger rerun
+                const hiddenButton = document.createElement('button');
+                hiddenButton.style.display = 'none';
+                hiddenButton.setAttribute('data-st-click', 'theme_toggle_hidden');
+                document.body.appendChild(hiddenButton);
+                hiddenButton.click();
+                document.body.removeChild(hiddenButton);
+            }
+        </script>
+        """.format(theme='Light' if current_theme == 'dark' else 'Dark'),
+        unsafe_allow_html=True
+    )
+    
+    # Hidden Streamlit button to handle the rerun
+    if st.button("Toggle Theme", key="theme_toggle_hidden"):
+        st.session_state.theme = 'dark' if current_theme == 'light' else 'light'
+        st.rerun()
 
 def run_p2_finder(reference_data, interpolation_ranges, production_rates):
     """UI for p2 Finder: Calculate wellhead and bottomhole pressures and depths."""
     logger.info("Running p2 Finder UI")
+    
+    # Render theme toggle at the top-right
+    render_theme_toggle()
     
     # Initialize session state for inputs
     if 'p2_finder_inputs' not in st.session_state:
@@ -186,20 +307,13 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
     
     st.write("**Calculation Logs**")
     st.write("Any warnings or informational messages will appear here.")
-    
-    # Night mode toggle button
-    st.markdown("---")
-    current_theme = st.session_state.get('theme', 'light')
-    if st.button(f"Switch to {'Light' if current_theme == 'dark' else 'Dark'} Mode"):
-        if current_theme == 'light':
-            st.session_state.theme = 'dark'
-        else:
-            st.session_state.theme = 'light'
-        st.rerun()
 
 def run_natural_flow_finder(reference_data, interpolation_ranges, production_rates):
     """UI for Natural Flow Finder: Find natural flow rate by intersecting TPR and IPR."""
     logger.info("Running Natural Flow Finder UI")
+    
+    # Render theme toggle at the top-right
+    render_theme_toggle()
     
     if 'natural_flow_inputs' not in st.session_state:
         st.session_state.natural_flow_inputs = {
@@ -534,20 +648,13 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
     
     st.write("**Calculation Logs**")
     st.write("Any warnings or informational messages will appear here.")
-    
-    # Night mode toggle button
-    st.markdown("---")
-    current_theme = st.session_state.get('theme', 'light')
-    if st.button(f"Switch to {'Light' if current_theme == 'dark' else 'Dark'} Mode"):
-        if current_theme == 'light':
-            st.session_state.theme = 'dark'
-        else:
-            st.session_state.theme = 'light'
-        st.rerun()
 
 def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates):
     """UI for GLR Graph Drawer: Plot pressure vs. depth for all GLRs."""
     logger.info("Running GLR Graph Drawer UI")
+    
+    # Render theme toggle at the top-right
+    render_theme_toggle()
     
     st.subheader("GLR Graph Drawer Inputs")
     col1, col2 = st.columns(2)
@@ -627,29 +734,51 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
     
     st.write("**Plotting Logs**")
     st.write("Any warnings or informational messages will appear here.")
-    
-    # Night mode toggle button
-    st.markdown("---")
-    current_theme = st.session_state.get('theme', 'light')
-    if st.button(f"Switch to {'Light' if current_theme == 'dark' else 'Dark'} Mode"):
-        if current_theme == 'light':
-            st.session_state.theme = 'dark'
-        else:
-            st.session_state.theme = 'light'
-        st.rerun()
 
 def post_task_menu():
     """Display a button to return to the main menu."""
+    # Render theme toggle at the top-right
+    render_theme_toggle()
+    
     if st.button("Back to Main Menu"):
         st.session_state.mode_select = None
         st.rerun()
+
+# Apply theme at the start to ensure consistent styling
+apply_theme()
+
+# Example main function to tie everything together (if needed)
+def main():
+    st.title("Well Performance Analysis Tool")
+    if 'mode_select' not in st.session_state:
+        st.session_state.mode_select = None
     
-    # Night mode toggle button
-    st.markdown("---")
-    current_theme = st.session_state.get('theme', 'light')
-    if st.button(f"Switch to {'Light' if current_theme == 'dark' else 'Dark'} Mode"):
-        if current_theme == 'light':
-            st.session_state.theme = 'dark'
-        else:
-            st.session_state.theme = 'light'
-        st.rerun()
+    # Render theme toggle for the main menu
+    render_theme_toggle()
+    
+    # Example menu logic (adjust based on your actual main function)
+    mode = st.selectbox(
+        "Select Mode:",
+        ["Select a mode", "p2 Finder", "Natural Flow Finder", "GLR Graph Drawer"],
+        index=0 if st.session_state.mode_select is None else ["Select a mode", "p2 Finder", "Natural Flow Finder", "GLR Graph Drawer"].index(st.session_state.mode_select)
+    )
+    
+    # Placeholder for reference_data, interpolation_ranges, production_rates
+    # Replace with actual data loading logic
+    reference_data = {}  # Example placeholder
+    interpolation_ranges = {}  # Example placeholder
+    production_rates = []  # Example placeholder
+    
+    if mode != "Select a mode":
+        st.session_state.mode_select = mode
+        if mode == "p2 Finder":
+            run_p2_finder(reference_data, interpolation_ranges, production_rates)
+        elif mode == "Natural Flow Finder":
+            run_natural_flow_finder(reference_data, interpolation_ranges, production_rates)
+        elif mode == "GLR Graph Drawer":
+            run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
+    else:
+        st.write("Please select a mode to proceed.")
+
+if __name__ == "__main__":
+    main()
