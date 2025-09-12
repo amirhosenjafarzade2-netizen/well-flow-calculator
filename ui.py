@@ -6,7 +6,7 @@ from plotting import (plot_results, plot_curves, plot_fetkovich_log_log,
                      plot_fetkovich_flow_after_flow, plot_glr_graphs)
 from validators import (validate_conduit_size, validate_production_rate, validate_glr,
                        validate_depth_and_pressure, validate_pressure, get_valid_options)
-from utils import export_results_to_excel, export_plot_to_jpg, setup_logging
+from utils import export_results_to_excel, export_plot_to_png, setup_logging
 from config import COLORS
 
 # Initialize logger
@@ -127,7 +127,7 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                 if not validate_production_rate(production_rate):
                     errors.append("Invalid production rate.")
                 if not validate_glr(conduit_size, production_rate, glr):
-                    errors.append(f"Invalid GLR. Valid ranges: {get_valid_glr_range(conduit_size, production_rate)}")
+                    errors.append(f"Invalid GLR. Valid ranges: {get_valid_glr_range(conduit_size production_rate)}")
                     ranges = interpolation_ranges.get((conduit_size, production_rate), [])
                     if ranges:
                         min_glr, max_glr = ranges[0]
@@ -174,14 +174,14 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
             
             try:
                 st.download_button(
-                    label="Download Plot as JPG",
-                    data=export_plot_to_jpg(fig),
-                    file_name="p2_finder_plot.jpg",
-                    mime="image/jpeg"
+                    label="Download Plot as PNG",
+                    data=export_plot_to_png(fig),
+                    file_name="p2_finder_plot.png",
+                    mime="image/png"
                 )
             except Exception as e:
-                st.error(f"Failed to export plot as JPG: {str(e)}")
-                logger.error(f"JPG export failed: {str(e)}")
+                st.error(f"Failed to export plot as PNG: {str(e)}")
+                logger.error(f"PNG export failed: {str(e)}")
     
     with logs_tab:
         st.write("**Calculation Logs**")
@@ -462,14 +462,14 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             
             try:
                 st.download_button(
-                    label="Download TPR/IPR Plot as JPG",
-                    data=export_plot_to_jpg(fig),
-                    file_name="tpr_ipr_plot.jpg",
-                    mime="image/jpeg"
+                    label="Download TPR/IPR Plot as PNG",
+                    data=export_plot_to_png(fig),
+                    file_name="tpr_ipr_plot.png",
+                    mime="image/png"
                 )
             except Exception as e:
-                st.error(f"Failed to export plot as JPG: {str(e)}")
-                logger.error(f"JPG export failed: {str(e)}")
+                st.error(f"Failed to export plot as PNG: {str(e)}")
+                logger.error(f"PNG export failed: {str(e)}")
             
             if ipr_method == "Fetkovich" and st.session_state.natural_flow_results['fetkovich_points']:
                 c, n, _, _ = calculate_ipr_fetkovich(pr, q01=q01, pwf1=pwf1, q02=q02, pwf2=pwf2)
@@ -478,27 +478,27 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     st.plotly_chart(fig_log, use_container_width=True)
                     try:
                         st.download_button(
-                            label="Download Log-Log Plot as JPG",
-                            data=export_plot_to_jpg(fig_log),
-                            file_name="fetkovich_log_log.jpg",
-                            mime="image/jpeg"
+                            label="Download Log-Log Plot as PNG",
+                            data=export_plot_to_png(fig_log),
+                            file_name="fetkovich_log_log.png",
+                            mime="image/png"
                         )
                     except Exception as e:
-                        st.error(f"Failed to export plot as JPG: {str(e)}")
-                        logger.error(f"JPG export failed: {str(e)}")
+                        st.error(f"Failed to export plot as PNG: {str(e)}")
+                        logger.error(f"PNG export failed: {str(e)}")
                 fig_faf = plot_fetkovich_flow_after_flow(st.session_state.natural_flow_results['fetkovich_points'], pr, mode='color')
                 if fig_faf:
                     st.plotly_chart(fig_faf, use_container_width=True)
                     try:
                         st.download_button(
-                            label="Download Flow-After-Flow Plot as JPG",
-                            data=export_plot_to_jpg(fig_faf),
-                            file_name="fetkovich_flow_after_flow.jpg",
-                            mime="image/jpeg"
+                            label="Download Flow-After-Flow Plot as PNG",
+                            data=export_plot_to_png(fig_faf),
+                            file_name="fetkovich_flow_after_flow.png",
+                            mime="image/png"
                         )
                     except Exception as e:
-                        st.error(f"Failed to export plot as JPG: {str(e)}")
-                        logger.error(f"JPG export failed: {str(e)}")
+                        st.error(f"Failed to export plot as PNG: {str(e)}")
+                        logger.error(f"PNG export failed: {str(e)}")
     
     with logs_tab:
         st.write("**Calculation Logs**")
@@ -591,14 +591,14 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                                 st.plotly_chart(fig, use_container_width=True)
                                 try:
                                     st.download_button(
-                                        label="Download GLR Plot as JPG",
-                                        data=export_plot_to_jpg(fig),
-                                        file_name=f"glr_plot_conduit{cs}_q0{pr}.jpg",
-                                        mime="image/jpeg"
+                                        label="Download GLR Plot as PNG",
+                                        data=export_plot_to_png(fig),
+                                        file_name=f"glr_plot_conduit{cs}_q0{pr}.png",
+                                        mime="image/png"
                                     )
                                 except Exception as e:
-                                    st.error(f"Failed to export plot as JPG: {str(e)}")
-                                    logger.error(f"JPG export failed: {str(e)}")
+                                    st.error(f"Failed to export plot as PNG: {str(e)}")
+                                    logger.error(f"PNG export failed: {str(e)}")
                             st.session_state.glr_graph_results = {'figs': figs}
                         else:
                             st.error("No valid GLR graphs generated. Please check reference data.")
