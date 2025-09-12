@@ -78,22 +78,30 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
         xaxis=dict(
             tick0=0,
             dtick=1000,
-            minor=dict(dtick=200),
             showgrid=True,
             gridcolor=gridcolor,
             gridwidth=1,
-            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            minor=dict(
+                dtick=200,
+                showgrid=True,
+                gridcolor=minor_gridcolor,
+                gridwidth=1
+            ),
             title_standoff=10,
             side='top'
         ),
         yaxis=dict(
             tick0=0,
             dtick=1000,
-            minor=dict(dtick=200),
             showgrid=True,
             gridcolor=gridcolor,
             gridwidth=1,
-            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            minor=dict(
+                dtick=200,
+                showgrid=True,
+                gridcolor=minor_gridcolor,
+                gridwidth=1
+            ),
             title_standoff=10
         ),
         legend=dict(
@@ -185,21 +193,29 @@ def plot_curves(tpr_points, ipr_points, pr, intersection_q0, intersection_p, glr
         xaxis=dict(
             tick0=0,
             dtick=100,
-            minor=dict(dtick=20),
             showgrid=True,
             gridcolor=gridcolor,
             gridwidth=1,
-            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            minor=dict(
+                dtick=20,
+                showgrid=True,
+                gridcolor=minor_gridcolor,
+                gridwidth=1
+            ),
             title_standoff=10
         ),
         yaxis=dict(
             tick0=0,
             dtick=1000,
-            minor=dict(dtick=200),
             showgrid=True,
             gridcolor=gridcolor,
             gridwidth=1,
-            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            minor=dict(
+                dtick=200,
+                showgrid=True,
+                gridcolor=minor_gridcolor,
+                gridwidth=1
+            ),
             title_standoff=10
         ),
         legend=dict(
@@ -278,19 +294,25 @@ def plot_fetkovich_log_log(points, pr, c, n, mode='color'):
         template='plotly_white' if mode == 'color' else 'plotly',
         hovermode='closest',
         xaxis=dict(
-            tick0=0,
             showgrid=True,
             gridcolor=gridcolor,
             gridwidth=1,
-            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            minor=dict(
+                showgrid=True,
+                gridcolor=minor_gridcolor,
+                gridwidth=1
+            ),
             title_standoff=10
         ),
         yaxis=dict(
-            tick0=0,
             showgrid=True,
             gridcolor=gridcolor,
             gridwidth=1,
-            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            minor=dict(
+                showgrid=True,
+                gridcolor=minor_gridcolor,
+                gridwidth=1
+            ),
             title_standoff=10
         ),
         legend=dict(
@@ -358,17 +380,25 @@ def plot_fetkovich_flow_after_flow(points, pr, mode='color'):
             showgrid=True,
             gridcolor=gridcolor,
             gridwidth=1,
-            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            minor=dict(
+                showgrid=True,
+                gridcolor=minor_gridcolor,
+                gridwidth=1
+            ),
             title_standoff=10
         ),
         yaxis=dict(
             tick0=0,
             dtick=1000,
-            minor=dict(dtick=200),
             showgrid=True,
             gridcolor=gridcolor,
             gridwidth=1,
-            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            minor=dict(
+                dtick=200,
+                showgrid=True,
+                gridcolor=minor_gridcolor,
+                gridwidth=1
+            ),
             title_standoff=10
         ),
         legend=dict(
@@ -521,22 +551,30 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
         xaxis=dict(
             tick0=0,
             dtick=1000,
-            minor=dict(dtick=200),
             showgrid=True,
             gridcolor=gridcolor,
             gridwidth=1,
-            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            minor=dict(
+                dtick=200,
+                showgrid=True,
+                gridcolor=minor_gridcolor,
+                gridwidth=1
+            ),
             title_standoff=10,
             side='top'
         ),
         yaxis=dict(
             tick0=0,
             dtick=1000,
-            minor=dict(dtick=200),
             showgrid=True,
             gridcolor=gridcolor,
             gridwidth=1,
-            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            minor=dict(
+                dtick=200,
+                showgrid=True,
+                gridcolor=minor_gridcolor,
+                gridwidth=1
+            ),
             title_standoff=10
         ),
         legend=dict(
