@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,6 +11,8 @@ import re
 # Global variable to store reference data using session state
 if 'REFERENCE_DATA' not in st.session_state:
     st.session_state.REFERENCE_DATA = None
+if 'mode' not in st.session_state:
+    st.session_state.mode = None
 
 # Interpolation ranges
 INTERPOLATION_RANGES = {
@@ -46,7 +47,7 @@ def parse_name(name):
 # Function to load reference data
 def load_reference_data():
     st.write("Please upload the reference Excel file 'all equations ei5204.xlsx'.")
-    uploaded_file = st.file_uploader("Upload Reference Excel", type=["xlsx"])
+    uploaded_file = st.file_uploader("Upload Reference Excel", type=["xlsx"], key="excel_uploader")
     if uploaded_file is None:
         st.error("No file uploaded. Please upload the file.")
         return None
@@ -397,6 +398,7 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
             ax_log.legend(loc='upper left')
             ax_log.grid(True)
             st.pyplot(fig_log)
+            plt.close(fig_log)  # Close figure to free memory
 
             # Draw flow after flow plot if 4 points are provided
             if len(points) == 4:
@@ -412,6 +414,7 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
                 ax_flow.legend(loc='upper left')
                 ax_flow.grid(True)
                 st.pyplot(fig_flow)
+                plt.close(fig_flow)  # Close figure to free memory
 
         if not np.isfinite(c) or not np.isfinite(n) or c <= 0 or n <= 0:
             raise ValueError(f"Computed Fetkovich parameters invalid: C={c}, n={n}")
@@ -597,37 +600,37 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
 # Post-task menu to handle repeat, change task, or exit
 def post_task_menu(mode):
     st.subheader("Next Action")
-    next_action = st.selectbox("Choose:", ["Repeat Task", "Choose Another Task", "End Program"])
+    next_action = st.selectbox("Choose:", ["Repeat Task", "Choose Another Task", "End Program"], key=f"next_action_{mode}")
     if next_action == "Repeat Task":
         if mode == "p2 Finder":
-            run_p2_finder()
-        else:  # Point of Natural Flow Finder
-            run_natural_flow_finder()
+            st.session_state.mode = "p2 Finder"
+        else:
+            st.session_state.mode = "Point of Natural Flow Finder"
     elif next_action == "Choose Another Task":
-        main()  # Restart main UI
+        st.session_state.mode = None
     else:  # End Program
         st.write("Program terminated.")
+        st.stop()
 
 # p2 Finder task with validation for p1 and D
 def run_p2_finder():
     st.header("p2 Finder")
     st.write("Enter parameters to calculate pressure and depth values using polynomial formulas.")
-    conduit_size = st.selectbox("Conduit Size:", [2.875, 3.5])
-    production_rate = st.number_input("Production Rate:", value=100.0, min_value=50.0, max_value=600.0)
-    glr = st.number_input("GLR:", value=200.0)
-    p1 = st.number_input("Pressure p1 (psi):", value=1000.0)
-    D = st.number_input("Depth Offset D (ft):", value=1000.0)
+    conduit_size = st.selectbox("Conduit Size:", [2.875, 3.5], key="p2_conduit_size")
+    production_rate = st.number_input("Production Rate:", value=100.0, min_value=50.0, max_value=600.0, key="p2_production_rate")
+    glr = st.number_input("GLR:", value=200.0, key="p2_glr")
+    p1 = st.number_input("Pressure p1 (psi):", value=1000.0, key="p2_p1")
+    D = st.number_input("Depth Offset D (ft):", value=1000.0, key="p2_D")
 
-    if st.button("Calculate"):
+    if st.button("Calculate", key="p2_calculate"):
         if st.session_state.REFERENCE_DATA is None:
-            st.error("Reference data not loaded. Please restart the program and upload the reference Excel file.")
+            st.error("Reference data not loaded. Please upload the reference Excel file.")
             post_task_menu("p2 Finder")
             return
 
         # Validate p1 by checking if y1 <= 31000
         result = calculate_results(conduit_size, production_rate, glr, p1, D, st.session_state.REFERENCE_DATA)
         if result[0] is None:
-            # If calculate_results fails due to invalid inputs (e.g., GLR, production rate), exit
             st.error("Invalid input parameters (e.g., GLR or production rate). Please check and try again.")
             post_task_menu("p2 Finder")
             return
@@ -663,18 +666,19 @@ def run_p2_finder():
         st.write("Pressure vs Depth Plot")
         fig = plot_results(p1, y1, y2, p2, D, coeffs, glr, interpolation_status, production_rate)
         st.pyplot(fig)
+        plt.close(fig)  # Close figure to free memory
         post_task_menu("p2 Finder")
 
 # Point of Natural Flow Finder task
 def run_natural_flow_finder():
     st.header("Point of Natural Flow Finder")
     st.write("Enter parameters to find the point of natural flow using TPR and IPR curves.")
-    conduit_size = st.selectbox("Conduit Size:", [2.875, 3.5])
-    glr = st.number_input("GLR:", value=200.0)
-    D = st.number_input("Well Length D (ft):", value=1000.0)
-    pwh = st.number_input("Wellhead Pressure Pwh (psi):", value=1000.0)
-    pr = st.number_input("Reservoir Pressure Pr (psi):", value=3000.0)
-    ipr_method = st.selectbox("IPR Method:", ["Fetkovich", "Vogel", "Composite"])
+    conduit_size = st.selectbox("Conduit Size:", [2.875, 3.5], key="nf_conduit_size")
+    glr = st.number_input("GLR:", value=200.0, key="nf_glr")
+    D = st.number_input("Well Length D (ft):", value=1000.0, key="nf_D")
+    pwh = st.number_input("Wellhead Pressure Pwh (psi):", value=1000.0, key="nf_pwh")
+    pr = st.number_input("Reservoir Pressure Pr (psi):", value=3000.0, key="nf_pr")
+    ipr_method = st.selectbox("IPR Method:", ["Fetkovich", "Vogel", "Composite"], key="nf_ipr_method")
     
     fetkovich_method = None
     c = None
@@ -692,28 +696,28 @@ def run_natural_flow_finder():
     p_b = None
 
     if ipr_method == "Fetkovich":
-        fetkovich_method = st.selectbox("Fetkovich Method:", ["Enter C and n directly", "Calculate C and n from points"])
+        fetkovich_method = st.selectbox("Fetkovich Method:", ["Enter C and n directly", "Calculate C and n from points"], key="nf_fetkovich_method")
         if fetkovich_method == "Enter C and n directly":
-            c = st.number_input("C:", value=1e-5)
-            n = st.number_input("n:", value=0.5)
+            c = st.number_input("C:", value=1e-5, key="nf_c")
+            n = st.number_input("n:", value=0.5, key="nf_n")
         else:
-            q01 = st.number_input("Q01 (stb/day):", value=100.0)
-            pwf1 = st.number_input("Pwf1 (psi):", value=2000.0)
-            q02 = st.number_input("Q02 (stb/day):", value=200.0)
-            pwf2 = st.number_input("Pwf2 (psi):", value=1500.0)
-            q03 = st.number_input("Q03 (stb/day):", value=0.0)
-            pwf3 = st.number_input("Pwf3 (psi):", value=0.0)
-            q04 = st.number_input("Q04 (stb/day):", value=0.0)
-            pwf4 = st.number_input("Pwf4 (psi):", value=0.0)
+            q01 = st.number_input("Q01 (stb/day):", value=100.0, key="nf_q01")
+            pwf1 = st.number_input("Pwf1 (psi):", value=2000.0, key="nf_pwf1")
+            q02 = st.number_input("Q02 (stb/day):", value=200.0, key="nf_q02")
+            pwf2 = st.number_input("Pwf2 (psi):", value=1500.0, key="nf_pwf2")
+            q03 = st.number_input("Q03 (stb/day):", value=0.0, key="nf_q03")
+            pwf3 = st.number_input("Pwf3 (psi):", value=0.0, key="nf_pwf3")
+            q04 = st.number_input("Q04 (stb/day):", value=0.0, key="nf_q04")
+            pwf4 = st.number_input("Pwf4 (psi):", value=0.0, key="nf_pwf4")
     elif ipr_method == "Vogel":
-        q_max = st.number_input("q_max (stb/day):", value=500.0)
+        q_max = st.number_input("q_max (stb/day):", value=500.0, key="nf_q_max")
     elif ipr_method == "Composite":
-        j_star = st.number_input("J* (stb/day/psi):", value=0.5)
-        p_b = st.number_input("P_b (psi):", value=2000.0)
+        j_star = st.number_input("J* (stb/day/psi):", value=0.5, key="nf_j_star")
+        p_b = st.number_input("P_b (psi):", value=2000.0, key="nf_p_b")
 
-    if st.button("Calculate and Plot"):
+    if st.button("Calculate and Plot", key="nf_calculate"):
         if st.session_state.REFERENCE_DATA is None:
-            st.error("Reference data not loaded. Please restart the program and upload the reference Excel file.")
+            st.error("Reference data not loaded. Please upload the reference Excel file.")
             post_task_menu("Point of Natural Flow Finder")
             return
 
@@ -792,6 +796,7 @@ def run_natural_flow_finder():
                     st.write("Could not determine the natural flow point.")
                 st.write("TPR and IPR Curves (Intersection indicates Point of Natural Flow)")
                 st.pyplot(fig)
+                plt.close(fig)  # Close figure to free memory
             else:
                 st.error("Failed to generate plot. Please check inputs and try again.")
             post_task_menu("Point of Natural Flow Finder")
@@ -806,11 +811,13 @@ def main():
     if st.session_state.REFERENCE_DATA is None:
         st.session_state.REFERENCE_DATA = load_reference_data()
         if st.session_state.REFERENCE_DATA is None:
-            st.error("Cannot proceed without reference data. Please try again.")
+            st.error("Cannot proceed without reference data. Please upload a valid Excel file.")
             return
 
-    mode = st.sidebar.selectbox("Select Mode:", ["p2 Finder", "Point of Natural Flow Finder"])
-    if mode == "p2 Finder":
+    if st.session_state.mode is None:
+        st.session_state.mode = st.sidebar.selectbox("Select Mode:", ["p2 Finder", "Point of Natural Flow Finder"], key="main_mode_select")
+    
+    if st.session_state.mode == "p2 Finder":
         run_p2_finder()
     else:
         run_natural_flow_finder()
