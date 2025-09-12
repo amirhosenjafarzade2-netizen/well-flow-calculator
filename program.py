@@ -8,11 +8,11 @@ import matplotlib.pyplot as plt
 import os
 import re
 
-# Global variable to store reference data using session state
+# Initialize session state variables
 if 'REFERENCE_DATA' not in st.session_state:
     st.session_state.REFERENCE_DATA = None
 if 'mode' not in st.session_state:
-    st.session_state.mode = None
+    st.session_state.mode = "p2 Finder"  # Default to p2 Finder to avoid None state
 
 # Interpolation ranges
 INTERPOLATION_RANGES = {
@@ -94,21 +94,17 @@ def load_reference_data():
 
 # Polynomial calculation function with dynamic range and production rate interpolation
 def calculate_results(conduit_size_input, production_rate_input, glr_input, p1, D, data_ref):
-    # Validate conduit size
     if conduit_size_input not in [2.875, 3.5]:
         st.error("Invalid conduit size. Must be 2.875 or 3.5.")
         return None, None, None, None, None, None, None
 
-    # Validate production rate
     if not (50 <= production_rate_input <= 600):
         st.error("Production rate must be between 50 and 600 stb/day.")
         return None, None, None, None, None, None, None
 
-    # Find the two closest production rates for interpolation
     lower_prate = max([pr for pr in PRODUCTION_RATES if pr <= production_rate_input], default=50)
     higher_prate = min([pr for pr in PRODUCTION_RATES if pr >= production_rate_input], default=600)
 
-    # Check if production rate is exact or needs interpolation
     if abs(lower_prate - higher_prate) < 1e-6:
         prate1 = prate2 = lower_prate
         production_interpolation_status = "exact"
@@ -117,7 +113,6 @@ def calculate_results(conduit_size_input, production_rate_input, glr_input, p1, 
         prate2 = higher_prate
         production_interpolation_status = "interpolated"
 
-    # Validate GLR for both production rates
     valid_glr1 = False
     valid_range1 = None
     if (conduit_size_input, prate1) in INTERPOLATION_RANGES:
@@ -142,16 +137,13 @@ def calculate_results(conduit_size_input, production_rate_input, glr_input, p1, 
         st.error(f"GLR {glr_input} is outside the valid interpolation ranges for conduit size {conduit_size_input} and production rate {prate2}.")
         return None, None, None, None, None, None, None
 
-    # Function to get coefficients for a specific production rate and GLR
     def get_coefficients(conduit_size, production_rate, glr_input, valid_range, data_ref):
-        # Check for exact match
         for entry in data_ref:
             if (abs(entry['conduit_size'] - conduit_size) < 1e-6 and
                 abs(entry['production_rate'] - production_rate) < 1e-6 and
                 abs(entry['glr'] - glr_input) < 1e-6):
                 return entry['coefficients'], glr_input, glr_input, "exact"
 
-        # Find rows for interpolation
         relevant_rows = [
             entry for entry in data_ref
             if (abs(entry['conduit_size'] - conduit_size) < 1e-6 and
@@ -199,7 +191,6 @@ def calculate_results(conduit_size_input, production_rate_input, glr_input, p1, 
         }
         return coeffs, glr1, glr2, "interpolated"
 
-    # Get coefficients for both production rates
     coeffs1, glr1_lower, glr1_higher, glr_status1 = get_coefficients(conduit_size_input, prate1, glr_input, valid_range1, data_ref)
     if coeffs1 is None:
         return None, None, None, None, None, None, None
@@ -214,7 +205,6 @@ def calculate_results(conduit_size_input, production_rate_input, glr_input, p1, 
         if coeffs2 is None:
             return None, None, None, None, None, None, None
 
-        # Interpolate between production rates
         fraction_prate = (production_rate_input - prate1) / (prate2 - prate1)
         coeffs = {
             'a': coeffs1['a'] + fraction_prate * (coeffs2['a'] - coeffs1['a']),
@@ -332,7 +322,7 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8, frameon=True, edgecolor='black')
     return fig
 
-# Modular function to calculate TPR points (using Beggs-Brill or polynomial approximation from data)
+# Modular function to calculate TPR points
 def calculate_tpr_points(conduit_size, glr, D, pwh, data_ref):
     production_rates = [50, 100, 200, 400, 600]
     tpr_points = []
@@ -361,7 +351,6 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
             raise ValueError("At least two valid points (Q0 > 0, Pwf > 0) required for Fetkovich parameters.")
 
         if len(points) == 2:
-            # Two-point method with corrected formula
             q01, pwf1 = points[0]
             q02, pwf2 = points[1]
             if pwf1 == pwf2 or q01 == q02 or pwf1 <= 0 or pwf2 <= 0 or q01 <= 0 or q02 <= 0:
@@ -373,7 +362,6 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
             n = np.log10(q02 / q01) / np.log10(delta_p2 / delta_p1)
             c = q01 / (delta_p1 ** n)
         else:
-            # Multi-point method using regression
             q_points_list, pwf_points_list = zip(*points)
             q_points_array = np.array(q_points_list)
             pwf_points_array = np.array(pwf_points_list)
@@ -382,7 +370,6 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
             popt, _ = curve_fit(fetkovich_model, pwf_points_array, q_points_array, p0=[1e-5, 0.5], maxfev=10000)
             c, n = popt
 
-            # Draw log-log plot for multi-point fit
             st.write("Generating Fetkovich log-log plot for multi-point fit...")
             delta_p = pr**2 - pwf_points_array**2
             x = np.log10(delta_p)
@@ -398,9 +385,8 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
             ax_log.legend(loc='upper left')
             ax_log.grid(True)
             st.pyplot(fig_log)
-            plt.close(fig_log)  # Close figure to free memory
+            plt.close(fig_log)
 
-            # Draw flow after flow plot if 4 points are provided
             if len(points) == 4:
                 st.write("Generating Flow After Flow Plot...")
                 fig_flow, ax_flow = plt.subplots(figsize=(8, 6))
@@ -414,12 +400,11 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
                 ax_flow.legend(loc='upper left')
                 ax_flow.grid(True)
                 st.pyplot(fig_flow)
-                plt.close(fig_flow)  # Close figure to free memory
+                plt.close(fig_flow)
 
         if not np.isfinite(c) or not np.isfinite(n) or c <= 0 or n <= 0:
             raise ValueError(f"Computed Fetkovich parameters invalid: C={c}, n={n}")
 
-    # Generate IPR points
     pwf_values = np.linspace(0, pr, 15)
     ipr_points = []
     for pwf in pwf_values:
@@ -442,7 +427,7 @@ def calculate_ipr_vogel(pr, q_max):
         raise ValueError("Insufficient valid IPR points to plot (need at least 2).")
     return q_max, ipr_points
 
-# Modular function to calculate IPR parameters and points using Composite (partially two-phase) method
+# Modular function to calculate IPR parameters and points using Composite method
 def calculate_ipr_composite(pr, j_star, p_b):
     pwf_values = np.linspace(0, pr, 15)
     ipr_points = []
@@ -467,15 +452,13 @@ def find_intersection(tpr_interp, ipr_func, pr):
         except Exception:
             return np.inf
 
-    # Feasibility check: Check if curves cross by evaluating sign change in [0, pr]
     p_low = 0
     p_high = pr
     f_low = intersection_func(p_low)
     f_high = intersection_func(p_high)
     if not (np.isfinite(f_low) and np.isfinite(f_high)) or f_low * f_high > 0:
-        return None, None  # No sign change, no intersection
+        return None, None
 
-    # Use bisect to find root
     try:
         intersection_p = bisect(intersection_func, p_low, p_high, maxiter=100)
         q0_ipr = ipr_func(intersection_p)
@@ -490,21 +473,13 @@ def find_intersection(tpr_interp, ipr_func, pr):
 # Modular function to plot TPR and IPR curves
 def plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit_size, glr, D, pwh, pr, ipr_params):
     fig, ax = plt.subplots(figsize=(10, 6))
-
-    # Plot TPR
     tpr_q0, tpr_p2 = zip(*tpr_points)
     ax.plot(tpr_q0, tpr_p2, 'b-o', linewidth=2, label=f'TPR (Conduit: {conduit_size} in, GLR: {glr}, D: {D} ft, Pwh: {pwh} psi)')
-
-    # Plot IPR
     ipr_q0, ipr_pwf = zip(*ipr_points)
     ax.plot(ipr_q0, ipr_pwf, 'r-', linewidth=2, label=f'IPR (Pr: {pr} psi, Params: {ipr_params})')
-
-    # Plot intersection point if found
     if intersection_p is not None and intersection_q0 is not None:
         ax.scatter([intersection_q0], [intersection_p], color='green', s=100, marker='*',
                    label=f'Natural Flow Point (Q0: {intersection_q0:.2f} stb/day, P: {intersection_p:.2f} psi)')
-
-    # Graph settings
     ax.set_xlabel('Production Rate, Q0 (stb/day)', fontsize=10)
     ax.set_ylabel('Pressure, psi', fontsize=10)
     ax.set_xlim(0, 600)
@@ -522,8 +497,6 @@ def plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit
 # Function to calculate Fetkovich parameters and plot TPR and IPR lines
 def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, data_ref=None):
     st.write("Starting plot_natural_flow function")
-
-    # Validate inputs
     if not (conduit_size in [2.875, 3.5]):
         st.error("Invalid conduit size. Must be 2.875 or 3.5.")
         return None, None, None
@@ -537,7 +510,6 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
         st.error("Reservoir pressure Pr must be positive.")
         return None, None, None
 
-    # Calculate TPR points
     try:
         tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, data_ref)
         st.write(f"TPR points calculated: {tpr_points}")
@@ -545,7 +517,6 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
         st.error(str(e))
         return None, None, None
 
-    # Interpolate TPR curve
     try:
         tpr_q0, tpr_p2 = zip(*tpr_points)
         tpr_interp = interp1d(tpr_q0, tpr_p2, kind='linear', fill_value='extrapolate')
@@ -553,7 +524,6 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
         st.error(f"Error interpolating TPR curve: {str(e)}")
         return None, None, None
 
-    # Calculate IPR based on method
     try:
         if ipr_method == 'fetkovich':
             c, n, ipr_points, fetkovich_points = calculate_ipr_fetkovich(pr, **ipr_params)
@@ -582,14 +552,12 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
         st.error(str(e))
         return None, None, None
 
-    # Find intersection with feasibility check
     intersection_q0, intersection_p = find_intersection(tpr_interp, ipr_func, pr)
     if intersection_q0 is None:
         st.error("Well cannot flow naturally; artificial lift required.")
         return None, None, None
     st.write(f"Intersection found: Q0={intersection_q0:.2f} stb/day, P={intersection_p:.2f} psi")
 
-    # Plot curves
     try:
         fig = plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit_size, glr, D, pwh, pr, ipr_params_str)
         return fig, intersection_q0, intersection_p
@@ -602,13 +570,10 @@ def post_task_menu(mode):
     st.subheader("Next Action")
     next_action = st.selectbox("Choose:", ["Repeat Task", "Choose Another Task", "End Program"], key=f"next_action_{mode}")
     if next_action == "Repeat Task":
-        if mode == "p2 Finder":
-            st.session_state.mode = "p2 Finder"
-        else:
-            st.session_state.mode = "Point of Natural Flow Finder"
+        st.session_state.mode = mode
     elif next_action == "Choose Another Task":
-        st.session_state.mode = None
-    else:  # End Program
+        st.session_state.mode = None  # Allow mode selection again
+    else:
         st.write("Program terminated.")
         st.stop()
 
@@ -628,7 +593,6 @@ def run_p2_finder():
             post_task_menu("p2 Finder")
             return
 
-        # Validate p1 by checking if y1 <= 31000
         result = calculate_results(conduit_size, production_rate, glr, p1, D, st.session_state.REFERENCE_DATA)
         if result[0] is None:
             st.error("Invalid input parameters (e.g., GLR or production rate). Please check and try again.")
@@ -641,13 +605,11 @@ def run_p2_finder():
             post_task_menu("p2 Finder")
             return
 
-        # Validate D by checking if y1 + D <= 31000
         if y1 + D > 31000:
             st.error(f"Invalid well length: D = {D} ft results in y1 + D = {y1 + D:.2f} ft, which exceeds 31000 ft.")
             post_task_menu("p2 Finder")
             return
 
-        # Proceed with calculation
         y1, y2, p2, coeffs, interpolation_status, glr1, glr2 = result
         st.subheader("Results")
         st.write(f"Conduit Size: {conduit_size}")
@@ -666,7 +628,7 @@ def run_p2_finder():
         st.write("Pressure vs Depth Plot")
         fig = plot_results(p1, y1, y2, p2, D, coeffs, glr, interpolation_status, production_rate)
         st.pyplot(fig)
-        plt.close(fig)  # Close figure to free memory
+        plt.close(fig)
         post_task_menu("p2 Finder")
 
 # Point of Natural Flow Finder task
@@ -679,7 +641,7 @@ def run_natural_flow_finder():
     pwh = st.number_input("Wellhead Pressure Pwh (psi):", value=1000.0, key="nf_pwh")
     pr = st.number_input("Reservoir Pressure Pr (psi):", value=3000.0, key="nf_pr")
     ipr_method = st.selectbox("IPR Method:", ["Fetkovich", "Vogel", "Composite"], key="nf_ipr_method")
-    
+
     fetkovich_method = None
     c = None
     n = None
@@ -796,7 +758,7 @@ def run_natural_flow_finder():
                     st.write("Could not determine the natural flow point.")
                 st.write("TPR and IPR Curves (Intersection indicates Point of Natural Flow)")
                 st.pyplot(fig)
-                plt.close(fig)  # Close figure to free memory
+                plt.close(fig)
             else:
                 st.error("Failed to generate plot. Please check inputs and try again.")
             post_task_menu("Point of Natural Flow Finder")
@@ -814,12 +776,12 @@ def main():
             st.error("Cannot proceed without reference data. Please upload a valid Excel file.")
             return
 
-    if st.session_state.mode is None:
-        st.session_state.mode = st.sidebar.selectbox("Select Mode:", ["p2 Finder", "Point of Natural Flow Finder"], key="main_mode_select")
-    
+    # Always show the mode selection in the sidebar
+    st.session_state.mode = st.sidebar.selectbox("Select Mode:", ["p2 Finder", "Point of Natural Flow Finder"], key="main_mode_select")
+
     if st.session_state.mode == "p2 Finder":
         run_p2_finder()
-    else:
+    elif st.session_state.mode == "Point of Natural Flow Finder":
         run_natural_flow_finder()
 
 if __name__ == "__main__":
