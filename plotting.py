@@ -75,6 +75,8 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
     ax.set_xlim(0, 4000)
     ax.set_ylim(0, 31000)
     ax.invert_yaxis()
+    # Fix tilt: Add symmetric padding
+    ax.margins(x=0.05, y=0.05)
     grid_color = '#D3D3D3' if mode == 'color' else 'black'
     ax.grid(True, which='major', color=grid_color)
     ax.grid(True, which='minor', color=grid_color, linestyle='-', alpha=0.5)
@@ -87,6 +89,12 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8, frameon=True, edgecolor='black')
     fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
+    
+    # Safety check for empty plot
+    if len(ax.lines) == 0:
+        logger.error("Empty plot in plot_results - closing and returning None")
+        plt.close(fig)
+        return None
     
     logger.info("Pressure vs. depth plot generated successfully.")
     return fig
@@ -114,19 +122,22 @@ def plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit
     fig, ax = plt.subplots(figsize=(10, 6))
     
     tpr_color = 'blue' if mode == 'color' else 'black'
-    ax.plot(tpr_q0, tpr_p2, 'b-o', linewidth=2, label=f'TPR (Conduit: {conduit_size} in, GLR: {glr}, D: {D} ft, Pwh: {pwh} psi)')
+    ax.plot(tpr_q0, tpr_p2, color=tpr_color, marker='o', linewidth=2, label=f'TPR (Conduit: {conduit_size} in, GLR: {glr}, D: {D} ft, Pwh: {pwh} psi)')
     
     ipr_color = 'red' if mode == 'color' else 'gray'
     ax.plot(ipr_q0, ipr_pwf, color=ipr_color, linewidth=2, label=f'IPR ({ipr_params})')
     
     if intersection_q0 is not None and intersection_p is not None:
-        ax.scatter([intersection_q0], [intersection_p], color='green' if mode == 'color' else 'black', s=100, marker='*',
+        intersect_color = 'green' if mode == 'color' else 'black'
+        ax.scatter([intersection_q0], [intersection_p], color=intersect_color, s=100, marker='*',
                    label=f'Natural Flow Point (Q0: {intersection_q0:.2f} stb/day, P: {intersection_p:.2f} psi)')
     
     ax.set_xlabel('Production Rate, Q0 (stb/day)', fontsize=10)
     ax.set_ylabel('Pressure, psi', fontsize=10)
     ax.set_xlim(0, 600)
     ax.set_ylim(0, max(pr, 4000))
+    # Fix tilt: Add symmetric padding
+    ax.margins(x=0.05, y=0.05)
     grid_color = '#D3D3D3' if mode == 'color' else 'black'
     ax.grid(True, which='major', color=grid_color)
     ax.grid(True, which='minor', color=grid_color, linestyle='-', alpha=0.5)
@@ -140,6 +151,12 @@ def plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit
     plt.tight_layout()
     fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
+    
+    # Safety check for empty plot
+    if len(ax.lines) == 0:
+        logger.error("Empty plot in plot_curves - closing and returning None")
+        plt.close(fig)
+        return None
     
     logger.info("TPR/IPR curves plot generated successfully.")
     return fig
@@ -179,8 +196,16 @@ def plot_fetkovich_log_log(points, pr, c, n, mode='color'):
     ax.grid(True)
     grid_color = '#D3D3D3' if mode == 'color' else 'black'
     ax.grid(True, color=grid_color, alpha=0.5)
+    # Fix tilt: Add symmetric padding
+    ax.margins(x=0.05, y=0.05)
     fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
+    
+    # Safety check for empty plot
+    if len(ax.lines) == 0:
+        logger.error("Empty plot in plot_fetkovich_log_log - closing and returning None")
+        plt.close(fig)
+        return None
     
     logger.info("Fetkovich log-log plot generated successfully.")
     return fig
@@ -220,8 +245,16 @@ def plot_fetkovich_flow_after_flow(points, pr, c, n, mode='color'):
     ax.grid(True)
     grid_color = '#D3D3D3' if mode == 'color' else 'black'
     ax.grid(True, color=grid_color, alpha=0.5)
+    # Fix tilt: Add symmetric padding
+    ax.margins(x=0.05, y=0.05)
     fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
+    
+    # Safety check for empty plot
+    if len(ax.lines) == 0:
+        logger.error("Empty plot in plot_fetkovich_flow_after_flow - closing and returning None")
+        plt.close(fig)
+        return None
     
     logger.info("Fetkovich flow-after-flow plot generated successfully.")
     return fig
@@ -267,6 +300,7 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
 
     # Store label positions to check for overlaps in black-and-white mode
     label_positions = []
+    traces_added = 0  # Counter for safety check
 
     for entry in relevant_rows:
         glr = entry['glr']
@@ -303,6 +337,7 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
         label_text = f'GLR {int(glr) if glr.is_integer() else glr}' if mode == 'color' else None
         ax.plot(p_plot, y_plot, color=line_color, linewidth=2.5, 
                 label=label_text)
+        traces_added += 1
 
         # Add end-point label for black-and-white mode
         if mode == 'bw' and p_plot and y_plot:
@@ -325,11 +360,19 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
             # Store the label position
             label_positions.append((end_x, end_y))
 
+    # Safety check: No traces added
+    if traces_added == 0:
+        logger.error("No valid curves added to GLR plot - closing and returning None")
+        plt.close(fig)
+        return None
+
     ax.set_xlabel('Gradient Pressure, psi', fontsize=10)
     ax.set_ylabel('Depth, ft', fontsize=10)
     ax.set_xlim(0, 4000)
     ax.set_ylim(0, 31000)
     ax.invert_yaxis()
+    # Fix tilt: Add symmetric padding
+    ax.margins(x=0.05, y=0.05)
     # Grid lines: weaker black for black-and-white, light gray for colorful
     grid_color = '#D3D3D3' if mode == 'color' else 'black'
     ax.grid(True, which='major', color=grid_color, 
@@ -350,5 +393,11 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
                  bbox_to_anchor=(1.05, 0.5), fontsize=8, frameon=True, edgecolor='black')
     ax.set_title(f"GLR Curves (Conduit: {conduit_size} in, Production: {production_rate} stb/day)")
     
-    logger.info(f"GLR graphs generated successfully.")
+    # Final safety check for empty plot
+    if len(ax.lines) == 0:
+        logger.error("Empty plot after setup in plot_glr_graphs - closing and returning None")
+        plt.close(fig)
+        return None
+    
+    logger.info(f"GLR graphs generated successfully with {traces_added} curves.")
     return fig
