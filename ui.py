@@ -553,7 +553,8 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                         st.error(error)
                     logger.error(f"GLR Graph Drawer errors: {errors}")
                 else:
-                    plot_mode = 'color' if st.session_state.theme == 'light' else 'bw'
+                    theme = st.get_option("theme.base")  # "light" or "dark"
+                    plot_mode = 'color' if theme == 'light' else 'bw'
                     fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode=plot_mode)
                     if fig:
                         st.plotly_chart(fig, use_container_width=True)
