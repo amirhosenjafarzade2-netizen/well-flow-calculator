@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import numpy as np
 from calculations import (calculate_results, calculate_tpr_points, calculate_ipr_fetkovich,
@@ -14,29 +15,74 @@ logger = setup_logging()
 
 def apply_theme():
     """Apply dark or light theme based on session state."""
-    if st.session_state.get('theme', 'light') == 'dark':
+    theme = st.session_state.get('theme', 'light')
+    if theme == 'dark':
         st.markdown("""
             <style>
                 .stApp {
                     background-color: #1e1e1e;
                     color: #ffffff;
                 }
-                .stTextInput > div > div > input, .stSelectbox > div > div > select {
+                .stTextInput > div > div > input, .stNumberInput > div > div > input, .stSelectbox > div > div > select {
                     background-color: #333333;
                     color: #ffffff;
+                    border: 1px solid #555555;
                 }
                 .stButton > button {
                     background-color: #4CAF50;
                     color: white;
+                    border: 1px solid #4CAF50;
+                }
+                .stButton > button:hover {
+                    background-color: #45a049;
+                }
+                .stMarkdown, .stWrite, .stError, .stWarning, .stSuccess {
+                    color: #ffffff;
+                }
+                .stPlotlyChart {
+                    background-color: #1e1e1e;
                 }
             </style>
         """, unsafe_allow_html=True)
-        return 'plotly_dark'
-    return 'plotly_white'
+        return 'dark_background'
+    else:
+        st.markdown("""
+            <style>
+                .stApp {
+                    background-color: #ffffff;
+                    color: #000000;
+                }
+                .stTextInput > div > div > input, .stNumberInput > div > div > input, .stSelectbox > div > div > select {
+                    background-color: #ffffff;
+                    color: #000000;
+                    border: 1px solid #cccccc;
+                }
+                .stButton > button {
+                    background-color: #007bff;
+                    color: white;
+                    border: 1px solid #007bff;
+                }
+                .stButton > button:hover {
+                    background-color: #0056b3;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+        return 'default'
+
+def toggle_theme():
+    """Toggle between light and dark themes."""
+    if st.session_state.get('theme', 'light') == 'light':
+        st.session_state.theme = 'dark'
+    else:
+        st.session_state.theme = 'light'
+    st.rerun()
 
 def run_p2_finder(reference_data, interpolation_ranges, production_rates):
     """UI for p2 Finder: Calculate wellhead and bottomhole pressures and depths."""
     logger.info("Running p2 Finder UI")
+    
+    # Apply theme
+    matplotlib_style = apply_theme()
     
     # Initialize session state for inputs
     if 'p2_finder_inputs' not in st.session_state:
@@ -164,32 +210,51 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                     
                     fig = plot_results(
                         p1, y1, y2, p2, D, coeffs, glr, interpolation_status, production_rate,
-                        mode='color'
+                        mode='color' if st.session_state.get('theme', 'light') == 'light' else 'bw'
                     )
-                    st.subheader("Pressure vs Depth Plot")
-                    st.pyplot(fig)
-                    
-                    # Check for valid fig before download
-                    if fig is not None and len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
-                        try:
-                            st.download_button(
-                                label="Download Plot as PNG",
-                                data=export_plot_to_png(fig),
-                                file_name="p2_finder_plot.png",
-                                mime="image/png"
-                            )
-                        except Exception as e:
-                            st.error(f"Failed to export plot as PNG: {str(e)}")
-                            logger.error(f"PNG export failed: {str(e)}")
+                    if fig is not None:
+                        st.subheader("Pressure vs Depth Plot")
+                        # Debug prints for checking fig validity
+                        st.write(f"Debug: Fig axes count = {len(fig.axes)}")
+                        if len(fig.axes) > 0:
+                            ax = fig.axes[0]
+                            st.write(f"Debug: Lines = {len(ax.lines)}, Patches = {len(ax.patches)}, Collections = {len(ax.collections)}, Texts = {len(ax.texts)}")
+                        
+                        st.pyplot(fig, clear_figure=True)
+                        
+                        # Check for valid fig before download
+                        if len(fig.axes) > 0 and (len(fig.axes[0].lines) > 0 or len(fig.axes[0].patches) > 0 or len(fig.axes[0].collections) > 0 or len(fig.axes[0].texts) > 0):
+                            try:
+                                st.download_button(
+                                    label="Download Plot as PNG",
+                                    data=export_plot_to_png(fig),
+                                    file_name="p2_finder_plot.png",
+                                    mime="image/png"
+                                )
+                            except Exception as e:
+                                st.error(f"Failed to export plot as PNG: {str(e)}")
+                                logger.error(f"PNG export failed: {str(e)}")
+                        else:
+                            st.warning("Plot is empty - cannot export.")
                     else:
-                        st.warning("Plot is empty - cannot export.")
+                        st.error("No valid plot generated. Please check inputs.")
+                        logger.error("No valid plot generated in p2 Finder.")
     
     st.write("**Calculation Logs**")
     st.write("Any warnings or informational messages will appear here.")
+    
+    # Theme toggle button
+    st.markdown("---")
+    current_theme = st.session_state.get('theme', 'light')
+    if st.button(f"Switch to {'Light' if current_theme == 'dark' else 'Dark'} Mode"):
+        toggle_theme()
 
 def run_natural_flow_finder(reference_data, interpolation_ranges, production_rates):
     """UI for Natural Flow Finder: Find natural flow rate by intersecting TPR and IPR."""
     logger.info("Running Natural Flow Finder UI")
+    
+    # Apply theme
+    matplotlib_style = apply_theme()
     
     if 'natural_flow_inputs' not in st.session_state:
         st.session_state.natural_flow_inputs = {
@@ -462,35 +527,47 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                     
-                    ipr_params_str = f'Pr: {pr} psi, Params: {ipr_method}'
+                    ipr_params_str = f'Pr: {pr} psi, Method: {ipr_method}'
                     fig = plot_curves(
                         tpr_points, ipr_points, intersection_q0, intersection_p, conduit_size, glr, D, pwh, pr, ipr_params_str,
-                        mode='color'
+                        mode='color' if st.session_state.get('theme', 'light') == 'light' else 'bw'
                     )
-                    st.subheader("TPR and IPR Curves (Intersection indicates Point of Natural Flow)")
-                    st.pyplot(fig)
-                    
-                    # Check for valid fig before download
-                    if fig is not None and len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
-                        try:
-                            st.download_button(
-                                label="Download TPR/IPR Plot as PNG",
-                                data=export_plot_to_png(fig),
-                                file_name="tpr_ipr_plot.png",
-                                mime="image/png"
-                            )
-                        except Exception as e:
-                            st.error(f"Failed to export plot as PNG: {str(e)}")
-                            logger.error(f"PNG export failed: {str(e)}")
-                    else:
-                        st.warning("Plot is empty - cannot export.")
+                    if fig is not None:
+                        st.subheader("TPR and IPR Curves (Intersection indicates Point of Natural Flow)")
+                        # Debug prints
+                        st.write(f"Debug: Fig axes count = {len(fig.axes)}")
+                        if len(fig.axes) > 0:
+                            ax = fig.axes[0]
+                            st.write(f"Debug: Lines = {len(ax.lines)}, Patches = {len(ax.patches)}, Collections = {len(ax.collections)}, Texts = {len(ax.texts)}")
+                        
+                        st.pyplot(fig, clear_figure=True)
+                        
+                        # Check for valid fig before download
+                        if len(fig.axes) > 0 and (len(fig.axes[0].lines) > 0 or len(fig.axes[0].patches) > 0 or len(fig.axes[0].collections) > 0 or len(fig.axes[0].texts) > 0):
+                            try:
+                                st.download_button(
+                                    label="Download TPR/IPR Plot as PNG",
+                                    data=export_plot_to_png(fig),
+                                    file_name="tpr_ipr_plot.png",
+                                    mime="image/png"
+                                )
+                            except Exception as e:
+                                st.error(f"Failed to export plot as PNG: {str(e)}")
+                                logger.error(f"PNG export failed: {str(e)}")
+                        else:
+                            st.warning("Plot is empty - cannot export.")
                     
                     if ipr_method == "Fetkovich" and fetkovich_points:
-                        fig_log = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode='color')
-                        if fig_log is not None and len(fig_log.axes) > 0:
+                        fig_log = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode='color' if st.session_state.get('theme', 'light') == 'light' else 'bw')
+                        if fig_log is not None:
                             st.subheader("Fetkovich Log-Log Plot")
-                            st.pyplot(fig_log)
-                            if len(fig_log.axes) > 0 and len(fig_log.axes[0].lines) > 0:
+                            st.write(f"Debug: Fig axes count = {len(fig_log.axes)}")
+                            if len(fig_log.axes) > 0:
+                                ax = fig_log.axes[0]
+                                st.write(f"Debug: Lines = {len(ax.lines)}, Patches = {len(ax.patches)}, Collections = {len(ax.collections)}, Texts = {len(ax.texts)}")
+                            
+                            st.pyplot(fig_log, clear_figure=True)
+                            if len(fig_log.axes) > 0 and (len(fig_log.axes[0].lines) > 0 or len(fig_log.axes[0].patches) > 0 or len(fig_log.axes[0].collections) > 0 or len(fig_log.axes[0].texts) > 0):
                                 try:
                                     st.download_button(
                                         label="Download Log-Log Plot as PNG",
@@ -502,11 +579,16 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                                     st.error(f"Failed to export plot as PNG: {str(e)}")
                                     logger.error(f"PNG export failed: {str(e)}")
                         
-                        fig_faf = plot_fetkovich_flow_after_flow(fetkovich_points, pr, c, n, mode='color')
-                        if fig_faf is not None and len(fig_faf.axes) > 0:
+                        fig_faf = plot_fetkovich_flow_after_flow(fetkovich_points, pr, c, n, mode='color' if st.session_state.get('theme', 'light') == 'light' else 'bw')
+                        if fig_faf is not None:
                             st.subheader("Flow After Flow Plot")
-                            st.pyplot(fig_faf)
-                            if len(fig_faf.axes) > 0 and len(fig_faf.axes[0].lines) > 0:
+                            st.write(f"Debug: Fig axes count = {len(fig_faf.axes)}")
+                            if len(fig_faf.axes) > 0:
+                                ax = fig_faf.axes[0]
+                                st.write(f"Debug: Lines = {len(ax.lines)}, Patches = {len(ax.patches)}, Collections = {len(ax.collections)}, Texts = {len(ax.texts)}")
+                            
+                            st.pyplot(fig_faf, clear_figure=True)
+                            if len(fig_faf.axes) > 0 and (len(fig_faf.axes[0].lines) > 0 or len(fig_faf.axes[0].patches) > 0 or len(fig_faf.axes[0].collections) > 0 or len(fig_faf.axes[0].texts) > 0):
                                 try:
                                     st.download_button(
                                         label="Download Flow-After-Flow Plot as PNG",
@@ -524,10 +606,19 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
     
     st.write("**Calculation Logs**")
     st.write("Any warnings or informational messages will appear here.")
+    
+    # Theme toggle button
+    st.markdown("---")
+    current_theme = st.session_state.get('theme', 'light')
+    if st.button(f"Switch to {'Light' if current_theme == 'dark' else 'Dark'} Mode"):
+        toggle_theme()
 
 def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates):
     """UI for GLR Graph Drawer: Plot pressure vs. depth for all GLRs."""
     logger.info("Running GLR Graph Drawer UI")
+    
+    # Apply theme
+    matplotlib_style = apply_theme()
     
     st.subheader("GLR Graph Drawer Inputs")
     col1, col2 = st.columns(2)
@@ -571,6 +662,11 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
             if not reference_data:
                 errors.append("Reference data is empty or invalid.")
             
+            # Check reference data
+            relevant_rows = [entry for entry in reference_data if abs(entry['conduit_size'] - conduit_size) < 1e-6 and abs(entry['production_rate'] - production_rate) < 1e-6]
+            if not relevant_rows:
+                errors.append(f"No reference data for conduit {conduit_size}, production {production_rate}.")
+            
             if errors:
                 for error in errors:
                     st.error(error)
@@ -581,10 +677,16 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                     if fig is not None:
                         st.subheader("GLR Graphs")
                         st.write(f"Conduit Size: {conduit_size} in, Production Rate: {production_rate} stb/day")
-                        st.pyplot(fig)
+                        # Debug prints
+                        st.write(f"Debug: Fig axes count = {len(fig.axes)}")
+                        if len(fig.axes) > 0:
+                            ax = fig.axes[0]
+                            st.write(f"Debug: Lines = {len(ax.lines)}, Patches = {len(ax.patches)}, Collections = {len(ax.collections)}, Texts = {len(ax.texts)}")
+                        
+                        st.pyplot(fig, clear_figure=True)
                         
                         # Check for valid fig before download
-                        if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
+                        if len(fig.axes) > 0 and (len(fig.axes[0].lines) > 0 or len(fig.axes[0].patches) > 0 or len(fig.axes[0].collections) > 0 or len(fig.axes[0].texts) > 0):
                             try:
                                 st.download_button(
                                     label="Download GLR Plot as PNG",
@@ -607,9 +709,25 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
     
     st.write("**Plotting Logs**")
     st.write("Any warnings or informational messages will appear here.")
+    
+    # Theme toggle button
+    st.markdown("---")
+    current_theme = st.session_state.get('theme', 'light')
+    if st.button(f"Switch to {'Light' if current_theme == 'dark' else 'Dark'} Mode"):
+        toggle_theme()
 
 def post_task_menu():
     """Display a button to return to the main menu."""
+    # Apply theme
+    matplotlib_style = apply_theme()
+    
     if st.button("Back to Main Menu"):
         st.session_state.mode_select = None
         st.rerun()
+    
+    # Theme toggle button
+    st.markdown("---")
+    current_theme = st.session_state.get('theme', 'light')
+    if st.button(f"Switch to {'Light' if current_theme == 'dark' else 'Dark'} Mode"):
+        toggle_theme()
+```
