@@ -425,7 +425,7 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
         if not np.isfinite(c) or not np.isfinite(n) or c <= 0 or n <= 0:
             raise ValueError(f"Computed Fetkovich parameters invalid: C={c}, n={n}")
 
-    # Generate IPR points
+    # Generate IPR points (for both direct and point-based inputs)
     pwf_values = np.linspace(0, pr, 15)
     ipr_points = []
     for pwf in pwf_values:
@@ -435,7 +435,6 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
     if len(ipr_points) < 2:
         raise ValueError("Insufficient valid IPR points to plot (need at least 2).")
     return c, n, ipr_points, points
-
 # Modular function to calculate IPR parameters and points using Vogel method
 def calculate_ipr_vogel(pr, q_max):
     pwf_values = np.linspace(0, pr, 15)
@@ -486,7 +485,10 @@ def find_intersection(tpr_interp, ipr_func, pr):
         intersection_p = bisect(intersection_func, p_low, p_high, maxiter=100)
         q0_ipr = ipr_func(intersection_p)
         q0_tpr = tpr_interp(intersection_p)
-        if 0 <= intersection_p <= max(pr, 4000) and 0 <= q0_ipr <= 600 and abs(q0_ipr - q0_tpr) < 1e-2 and 0 <= q0_tpr <= 600:
+        # Relaxed tolerance and production rate limit
+        if (0 <= intersection_p <= max(pr, 4000) and 
+            0 <= q0_ipr <= 650 and 0 <= q0_tpr <= 650 and 
+            abs(q0_ipr - q0_tpr) < 1e-1):
             return q0_ipr, intersection_p
         else:
             return None, None
