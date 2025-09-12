@@ -272,6 +272,19 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
         logger.error(f"Invalid inputs for GLR plot: {valid_ranges}")
         return None
     
+    # Validate reference_data structure
+    if not isinstance(reference_data, list):
+        logger.error("reference_data must be a list of dictionaries")
+        return None
+    
+    for row in reference_data:
+        if not isinstance(row, dict) or not all(key in row for key in ['conduit_size', 'production_rate', 'glr', 'coefficients']):
+            logger.error("Invalid reference_data format: each row must be a dict with 'conduit_size', 'production_rate', 'glr', and 'coefficients'")
+            return None
+        if not isinstance(row['coefficients'], dict) or not all(key in row['coefficients'] for key in ['a', 'b', 'c', 'd', 'e', 'f']):
+            logger.error("Invalid coefficients format in reference_data")
+            return None
+    
     # Filter reference data
     relevant_rows = [
         row for row in reference_data
@@ -287,11 +300,17 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
     
     # Plot curves for each GLR
     p1_full = np.linspace(0, 4000, 100)
+    traces_added = 0
     for i, row in enumerate(relevant_rows):
         glr = row['glr']
         coeffs = row['coefficients']
         y1_full = polynomial(p1_full, coeffs)
         y1_full = np.where((y1_full >= 0) & (y1_full <= 31000), y1_full, np.nan)
+        
+        # Check if y1_full has valid data
+        if np.all(np.isnan(y1_full)):
+            logger.warning(f"Skipping GLR={glr} due to invalid polynomial output")
+            continue
         
         # Assign color
         if mode == 'color':
@@ -310,6 +329,12 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
             line=dict(color=line_color, width=2),
             hovertemplate='Pressure: %{x:.2f} psi<br>Depth: %{y:.2f} ft'
         ))
+        traces_added += 1
+    
+    # Check if any traces were added
+    if traces_added == 0:
+        logger.error("No valid traces added to GLR plot")
+        return None
     
     # Update layout
     fig.update_layout(
@@ -324,5 +349,5 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
         hovermode='closest'
     )
     
-    logger.info("GLR graphs generated successfully.")
+    logger.info(f"GLR graphs generated successfully with {traces_added} traces.")
     return fig
