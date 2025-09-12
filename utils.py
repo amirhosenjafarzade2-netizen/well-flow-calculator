@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import io
 import logging
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 
 def polynomial(x, coeffs):
     """
@@ -54,75 +54,84 @@ def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersectio
 
 def export_plot_to_png(fig):
     """
-    Export a Plotly figure to PNG format.
-    Returns bytes for Streamlit download.
+    Export a matplotlib figure to PNG format.
+    Returns bytes for Streamlit download. Returns empty bytes if fig is invalid/empty.
     """
     logger = setup_logging()
-    if fig is None or not hasattr(fig, 'data') or not fig.data:
-        logger.error("Invalid or empty Plotly figure provided for PNG export.")
-        raise ValueError("Cannot export plot: Invalid or empty figure.")
+    if fig is None:
+        logger.warning("Cannot export: Figure is None")
+        return b''  # Empty bytes instead of error
+    if len(fig.axes) == 0:
+        logger.warning("Cannot export: No axes in figure")
+        return b''
+    
+    ax = fig.axes[0]
+    # Broader check for content (lines, scatters, text, etc.)
+    if (len(ax.lines) + len(ax.patches) + len(ax.collections) + len(ax.texts) == 0):
+        logger.warning("Cannot export: Empty axes (no visible content)")
+        return b''
     
     try:
-        import kaleido
         buf = io.BytesIO()
-        fig.write_image(buf, format='png')
-        return buf.getvalue()
-    except ImportError:
-        logger.error("Kaleido is not installed, cannot export plot to PNG.")
-        raise ImportError("Kaleido is required for PNG export but is not installed.")
-    except RuntimeError as e:
-        logger.error(f"Failed to export plot to PNG: {str(e)}")
-        raise RuntimeError("Failed to export plot to PNG: Chrome browser may be missing or misconfigured.")
+        fig.savefig(buf, format='png', dpi=300, bbox_inches='tight', facecolor=fig.get_facecolor(), edgecolor='none')
+        buf.seek(0)
+        png_data = buf.getvalue()
+        logger.info(f"Exported PNG: {len(png_data)} bytes")
+        return png_data
     except Exception as e:
-        logger.error(f"Unexpected error during PNG export: {str(e)}")
-        raise
+        logger.error(f"Savefig failed: {str(e)}")
+        return b''  # Return empty instead of raising
 
 def export_plot_to_pdf(fig):
     """
-    Export a Plotly figure to PDF format.
-    Returns bytes for Streamlit download.
+    Export a matplotlib figure to PDF format.
+    Returns bytes for Streamlit download. Returns empty bytes if fig is invalid/empty.
     """
     logger = setup_logging()
-    if fig is None or not hasattr(fig, 'data') or not fig.data:
-        logger.error("Invalid or empty Plotly figure provided for PDF export.")
-        raise ValueError("Cannot export plot: Invalid or empty figure.")
+    if fig is None:
+        logger.warning("Cannot export: Figure is None")
+        return b''
+    if len(fig.axes) == 0:
+        logger.warning("Cannot export: No axes in figure")
+        return b''
+    
+    ax = fig.axes[0]
+    if (len(ax.lines) + len(ax.patches) + len(ax.collections) + len(ax.texts) == 0):
+        logger.warning("Cannot export: Empty axes (no visible content)")
+        return b''
     
     try:
-        import kaleido
         buf = io.BytesIO()
-        fig.write_image(buf, format='pdf')
+        fig.savefig(buf, format='pdf', dpi=300, bbox_inches='tight')
+        buf.seek(0)
         return buf.getvalue()
-    except ImportError:
-        logger.error("Kaleido is not installed, cannot export plot to PDF.")
-        raise ImportError("Kaleido is required for PDF export but is not installed.")
-    except RuntimeError as e:
-        logger.error(f"Failed to export plot to PDF: {str(e)}")
-        raise RuntimeError("Failed to export plot to PDF: Chrome browser may be missing or misconfigured.")
     except Exception as e:
-        logger.error(f"Unexpected error during PDF export: {str(e)}")
-        raise
+        logger.error(f"Savefig PDF failed: {str(e)}")
+        return b''
 
 def export_plot_to_jpg(fig):
     """
-    Export a Plotly figure to JPG format with high resolution.
-    Returns bytes for Streamlit download.
+    Export a matplotlib figure to JPG format with high resolution.
+    Returns bytes for Streamlit download. Returns empty bytes if fig is invalid/empty.
     """
     logger = setup_logging()
-    if fig is None or not hasattr(fig, 'data') or not fig.data:
-        logger.error("Invalid or empty Plotly figure provided for JPG export.")
-        raise ValueError("Cannot export plot: Invalid or empty figure.")
+    if fig is None:
+        logger.warning("Cannot export: Figure is None")
+        return b''
+    if len(fig.axes) == 0:
+        logger.warning("Cannot export: No axes in figure")
+        return b''
+    
+    ax = fig.axes[0]
+    if (len(ax.lines) + len(ax.patches) + len(ax.collections) + len(ax.texts) == 0):
+        logger.warning("Cannot export: Empty axes (no visible content)")
+        return b''
     
     try:
-        import kaleido
         buf = io.BytesIO()
-        fig.write_image(buf, format='jpeg', scale=2)  # ~300 DPI
+        fig.savefig(buf, format='jpg', dpi=300, bbox_inches='tight', quality=95)
+        buf.seek(0)
         return buf.getvalue()
-    except ImportError:
-        logger.error("Kaleido is not installed, cannot export plot to JPG.")
-        raise ImportError("Kaleido is required for JPG export but is not installed.")
-    except RuntimeError as e:
-        logger.error(f"Failed to export plot to JPG: {str(e)}")
-        raise RuntimeError("Failed to export plot to JPG: Chrome browser may be missing or misconfigured.")
     except Exception as e:
-        logger.error(f"Unexpected error during JPG export: {str(e)}")
-        raise
+        logger.error(f"Savefig JPG failed: {str(e)}")
+        return b''
