@@ -344,7 +344,6 @@ def calculate_tpr_points(conduit_size, glr, D, pwh, data_ref):
 
 # Modular function to calculate IPR parameters and points using Fetkovich method
 def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, pwf2=None, q03=None, pwf3=None, q04=None, pwf4=None):
-    points = None
     if c is None or n is None:
         points = []
         if q01 is not None and pwf1 is not None and q01 > 0 and pwf1 > 0:
@@ -544,7 +543,7 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
 
     # Interpolate TPR curve
     try:
-        tpr_q0, tpr_p2 = zip(*tpr_points)
+        tpr_p2, tpr_q0 = zip(*tpr_points)
         tpr_interp = interp1d(tpr_p2, tpr_q0, kind='linear', fill_value='extrapolate')
     except Exception as e:
         st.error(f"Error interpolating TPR curve: {str(e)}")
@@ -582,7 +581,9 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
     # Find intersection with feasibility check
     intersection_q0, intersection_p = find_intersection(tpr_interp, ipr_func, pr)
     if intersection_q0 is None:
-        st.warning("Well cannot flow naturally; artificial lift required. Showing TPR and IPR curves for visualization.")
+        st.warning("Well cannot flow naturally; artificial lift required.")
+    else:
+        st.write(f"Intersection found: Q0={intersection_q0:.2f} stb/day, P={intersection_p:.2f} psi")
 
     # Plot curves regardless of intersection
     try:
@@ -610,63 +611,6 @@ def run_p2_finder():
     st.write("Enter parameters to calculate pressure and depth values using polynomial formulas.")
     conduit_size = st.selectbox("Conduit Size:", [2.875, 3.5])
     production_rate = st.number_input("Production Rate:", value=100.0, min_value=50.0, max_value=600.0)
-    glr = st.number_input("GLR:", value=200.0)
-    p1 = st.number_input("Pressure p1 (psi):", value=1000.0)
-    D = st.number_input("Depth Offset D (ft):", value=1000.0)
-
-    if st.button("Calculate"):
-        if st.session_state.REFERENCE_DATA is None:
-            st.error("Reference data not loaded. Please restart the program and upload the reference Excel file.")
-            post_task_menu("p2 Finder")
-            return
-
-        # Validate p1 by checking if y1 <= 31000
-        result = calculate_results(conduit_size, production_rate, glr, p1, D, st.session_state.REFERENCE_DATA)
-        if result[0] is None:
-            # If calculate_results fails due to invalid inputs (e.g., GLR, production rate), exit
-            st.error("Invalid input parameters (e.g., GLR or production rate). Please check and try again.")
-            post_task_menu("p2 Finder")
-            return
-        y1 = result[0]
-
-        if y1 > 31000:
-            st.error(f"Invalid pressure: p1 = {p1} psi results in y1 = {y1:.2f} ft, which exceeds 31000 ft.")
-            post_task_menu("p2 Finder")
-            return
-
-        # Validate D by checking if y1 + D <= 31000
-        if y1 + D > 31000:
-            st.error(f"Invalid well length: D = {D} ft results in y1 + D = {y1 + D:.2f} ft, which exceeds 31000 ft.")
-            post_task_menu("p2 Finder")
-            return
-
-        # Proceed with calculation
-        y1, y2, p2, coeffs, interpolation_status, glr1, glr2 = result
-        st.subheader("Results")
-        st.write(f"Conduit Size: {conduit_size}")
-        st.write(f"Production Rate: {production_rate} stb/day")
-        st.write(f"GLR: {glr}")
-        st.write(f"Pressure p1: {p1} psi")
-        st.write(f"Depth Offset D: {D} ft")
-        st.write("p2 Finder Results")
-        if interpolation_status == "exact":
-            st.write("Using exact polynomial coefficients from data.")
-        else:
-            st.write(f"Interpolated polynomial coefficients between GLR {glr1} and {glr2}.")
-        st.write(f"Depth y1 at p1: {y1:.2f} ft")
-        st.write(f"Target Depth y2: {y2:.2f} ft")
-        st.write(f"Pressure p2: {p2:.2f} psi")
-        st.write("Pressure vs Depth Plot")
-        fig = plot_results(p1, y1, y2, p2, D, coeffs, glr, interpolation_status, production_rate)
-        st.pyplot(fig)
-        post_task_menu("p2 Finder")
-
-# Point of Natural Flow Finder task
-def run_natural_flow_finder():
-    st.header("Point of Natural Flow Finder")
-    st.write("Enter parameters to find the point of natural flow using TPR and IPR curves.")
-    conduit_size = st.selectbox("Conduit Size:", [2.875, 3.5])
-    production_rate = st.number_input("Production Rate:", value=100.0)
     glr = st.number_input("GLR:", value=200.0)
     p1 = st.number_input("Pressure p1 (psi):", value=1000.0)
     D = st.number_input("Depth Offset D (ft):", value=1000.0)
