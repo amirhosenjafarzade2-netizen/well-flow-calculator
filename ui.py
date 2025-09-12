@@ -186,6 +186,16 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
     
     st.write("**Calculation Logs**")
     st.write("Any warnings or informational messages will appear here.")
+    
+    # Night mode toggle button
+    st.markdown("---")
+    current_theme = st.session_state.get('theme', 'light')
+    if st.button(f"Switch to {'Light' if current_theme == 'dark' else 'Dark'} Mode"):
+        if current_theme == 'light':
+            st.session_state.theme = 'dark'
+        else:
+            st.session_state.theme = 'light'
+        st.rerun()
 
 def run_natural_flow_finder(reference_data, interpolation_ranges, production_rates):
     """UI for Natural Flow Finder: Find natural flow rate by intersecting TPR and IPR."""
@@ -524,6 +534,16 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
     
     st.write("**Calculation Logs**")
     st.write("Any warnings or informational messages will appear here.")
+    
+    # Night mode toggle button
+    st.markdown("---")
+    current_theme = st.session_state.get('theme', 'light')
+    if st.button(f"Switch to {'Light' if current_theme == 'dark' else 'Dark'} Mode"):
+        if current_theme == 'light':
+            st.session_state.theme = 'dark'
+        else:
+            st.session_state.theme = 'light'
+        st.rerun()
 
 def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates):
     """UI for GLR Graph Drawer: Plot pressure vs. depth for all GLRs."""
@@ -607,9 +627,29 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
     
     st.write("**Plotting Logs**")
     st.write("Any warnings or informational messages will appear here.")
+    
+    # Night mode toggle button
+    st.markdown("---")
+    current_theme = st.session_state.get('theme', 'light')
+    if st.button(f"Switch to {'Light' if current_theme == 'dark' else 'Dark'} Mode"):
+        if current_theme == 'light':
+            st.session_state.theme = 'dark'
+        else:
+            st.session_state.theme = 'light'
+        st.rerun()
 
 def post_task_menu():
     """Display a button to return to the main menu."""
     if st.button("Back to Main Menu"):
         st.session_state.mode_select = None
+        st.rerun()
+    
+    # Night mode toggle button
+    st.markdown("---")
+    current_theme = st.session_state.get('theme', 'light')
+    if st.button(f"Switch to {'Light' if current_theme == 'dark' else 'Dark'} Mode"):
+        if current_theme == 'light':
+            st.session_state.theme = 'dark'
+        else:
+            st.session_state.theme = 'light'
         st.rerun()
