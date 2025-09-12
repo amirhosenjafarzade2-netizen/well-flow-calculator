@@ -1,0 +1,585 @@
+# ui.py
+# Task-specific UI logic for the Well Pressure and Depth Calculator
+
+import streamlit as st
+import numpy as np
+from calculations import (calculate_results, calculate_tpr_points, calculate_ipr_fetkovich,
+                         calculate_ipr_vogel, calculate_ipr_composite, find_intersection)
+from plotting import (plot_results, plot_curves, plot_fetkovich_log_log,
+                     plot_fetkovich_flow_after_flow, plot_glr_graphs)
+from validators import (validate_conduit_size, validate_production_rate, validate_glr,
+                       validate_depth_and_pressure, validate_pressure, get_valid_options)
+from utils import export_results_to_excel, export_plot_to_png, export_plot_to_pdf, setup_logging
+from config import COLORS
+
+# Initialize logger
+logger = setup_logging()
+
+def apply_theme():
+    """Apply dark or light theme based on session state."""
+    if st.session_state.get('theme', 'light') == 'dark':
+        st.markdown("""
+            <style>
+                .stApp {
+                    background-color: #1e1e1e;
+                    color: #ffffff;
+                }
+                .stTextInput > div > div > input, .stSelectbox > div > div > select {
+                    background-color: #333333;
+                    color: #ffffff;
+                }
+                .stButton > button {
+                    background-color: #4CAF50;
+                    color: white;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+        return 'plotly_dark'
+    return 'plotly_white'
+
+def run_p2_finder(reference_data, interpolation_ranges, production_rates):
+    """UI for p2 Finder: Calculate wellhead and bottomhole pressures and depths."""
+    logger.info("Running p2 Finder UI")
+    
+    # Initialize session state for inputs
+    if 'p2_finder_inputs' not in st.session_state:
+        st.session_state.p2_finder_inputs = {
+            'conduit_size': 2.875,
+            'production_rate': 100,
+            'glr': 200,
+            'p1': 1000.0,
+            'D': 1000.0
+        }
+    
+    # Create tabs
+    input_tab, results_tab, plot_tab, logs_tab = st.tabs(["Inputs", "Results", "Plot", "Logs"])
+    
+    with input_tab:
+        st.subheader("p2 Finder Inputs")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            valid_conduits = [2.875, 3.5]
+            conduit_size = st.selectbox(
+                "Conduit Size (in):",
+                valid_conduits,
+                index=valid_conduits.index(st.session_state.p2_finder_inputs['conduit_size']),
+                help="Select the conduit size (2.875 or 3.5 inches)."
+            )
+            st.session_state.p2_finder_inputs['conduit_size'] = conduit_size
+            
+            valid_prates, valid_glrs = get_valid_options(conduit_size)
+            production_rate = st.selectbox(
+                "Production Rate (stb/day):",
+                valid_prates,
+                index=valid_prates.index(st.session_state.p2_finder_inputs['production_rate']) if st.session_state.p2_finder_inputs['production_rate'] in valid_prates else 0,
+                help="Select the production rate (50 to 600 stb/day)."
+            )
+            st.session_state.p2_finder_inputs['production_rate'] = production_rate
+            
+            glr_option = st.selectbox(
+                "GLR (scf/stb):",
+                ["Custom"] + valid_glrs.get(production_rate, []),
+                help="Select a valid GLR or enter a custom value."
+            )
+            if glr_option == "Custom":
+                glr = st.number_input(
+                    "Custom GLR:",
+                    min_value=0.0,
+                    value=st.session_state.p2_finder_inputs['glr'],
+                    step=100.0,
+                    help="Enter a custom GLR value (must be within valid ranges)."
+                )
+            else:
+                glr = float(glr_option)
+            st.session_state.p2_finder_inputs['glr'] = glr
+        
+        with col2:
+            p1 = st.number_input(
+                "Wellhead Pressure, p1 (psi):",
+                min_value=0.0,
+                max_value=4000.0,
+                value=st.session_state.p2_finder_inputs['p1'],
+                step=10.0,
+                help="Enter the wellhead pressure (0 to 4000 psi)."
+            )
+            st.session_state.p2_finder_inputs['p1'] = p1
+            
+            D = st.number_input(
+                "Well Length, D (ft):",
+                min_value=0.0,
+                max_value=31000.0,
+                value=st.session_state.p2_finder_inputs['D'],
+                step=100.0,
+                help="Enter the well length (y1 + D ≤ 31000 ft)."
+            )
+            st.session_state.p2_finder_inputs['D'] = D
+        
+        calculate = st.button("Calculate")
+    
+    with results_tab:
+        if calculate:
+            with st.spinner("Calculating..."):
+                # Validate inputs
+                errors = []
+                if not validate_conduit_size(conduit_size):
+                    errors.append("Invalid conduit size.")
+                if not validate_production_rate(production_rate):
+                    errors.append("Invalid production rate.")
+                if not validate_glr(conduit_size, production_rate, glr):
+                    errors.append(f"Invalid GLR. Valid ranges: {get_valid_glr_range(conduit_size, production_rate)}")
+                    # Auto-correct GLR
+                    ranges = interpolation_ranges.get((conduit_size, production_rate), [])
+                    if ranges:
+                        min_glr, max_glr = ranges[0]
+                        glr = min(max_glr, max(min_glr, glr))
+                        st.info(f"GLR auto-corrected to {glr} scf/stb.")
+                if not validate_pressure(p1, "wellhead pressure"):
+                    errors.append("Invalid wellhead pressure.")
+                if not validate_depth_and_pressure(0, D):
+                    errors.append("Invalid well length.")
+                
+                if errors:
+                    for error in errors:
+                        st.error(error)
+                    logger.error(f"p2 Finder errors: {errors}")
+                else:
+                    # Perform calculation
+                    result = calculate_results(conduit_size, production_rate, glr, p1, D, reference_data)
+                    if result[0] is None:
+                        st.error("Calculation failed. Please check inputs and try again.")
+                    else:
+                        y1, y2, p2, coeffs, interpolation_status, glr1, glr2 = result
+                        st.write(f"**Depth y1**: {y1:.2f} ft")
+                        st.write(f"**Depth y2**: {y2:.2f} ft")
+                        st.write(f"**Pressure p2**: {p2:.2f} psi")
+                        st.write(f"**Interpolation Status**: {interpolation_status}")
+                        st.write(f"**GLR Range**: [{glr1}, {glr2}]")
+                        st.session_state.p2_finder_results = {
+                            'y1': y1, 'y2': y2, 'p2': p2, 'coeffs': coeffs,
+                            'interpolation_status': interpolation_status,
+                            'glr_input': glr, 'production_rate': production_rate
+                        }
+    
+    with plot_tab:
+        if 'p2_finder_results' in st.session_state and calculate:
+            plot_mode = 'color' if st.session_state.theme == 'light' else 'bw'
+            fig = plot_results(
+                p1, st.session_state.p2_finder_results['y1'],
+                st.session_state.p2_finder_results['y2'], st.session_state.p2_finder_results['p2'],
+                D, st.session_state.p2_finder_results['coeffs'],
+                st.session_state.p2_finder_results['glr_input'],
+                st.session_state.p2_finder_results['interpolation_status'],
+                st.session_state.p2_finder_results['production_rate'],
+                mode=plot_mode
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Download buttons
+            st.download_button(
+                label="Download Plot as PNG",
+                data=export_plot_to_png(fig),
+                file_name="p2_finder_plot.png",
+                mime="image/png"
+            )
+            st.download_button(
+                label="Download Plot as PDF",
+                data=export_plot_to_pdf(fig),
+                file_name="p2_finder_plot.pdf",
+                mime="application/pdf"
+            )
+    
+    with logs_tab:
+        st.write("**Calculation Logs**")
+        st.write("Any warnings or informational messages will appear here.")
+        # Log messages are displayed via validators.py and calculations.py
+
+def run_natural_flow_finder(reference_data, interpolation_ranges, production_rates):
+    """UI for Natural Flow Finder: Find natural flow rate by intersecting TPR and IPR."""
+    logger.info("Running Natural Flow Finder UI")
+    
+    # Initialize session state for inputs
+    if 'natural_flow_inputs' not in st.session_state:
+        st.session_state.natural_flow_inputs = {
+            'conduit_size': 2.875,
+            'production_rate': 100,
+            'glr': 200,
+            'pwh': 1000.0,
+            'D': 1000.0,
+            'pr': 2000.0,
+            'ipr_method': 'Fetkovich',
+            'c': 0.0001,
+            'n': 0.5,
+            'q_max': 500.0,
+            'j_star': 0.5,
+            'p_b': 1000.0,
+            'q01': 100.0,
+            'pwf1': 1500.0,
+            'q02': 200.0,
+            'pwf2': 1000.0
+        }
+    
+    # Create tabs
+    input_tab, results_tab, plot_tab, logs_tab = st.tabs(["Inputs", "Results", "Plots", "Logs"])
+    
+    with input_tab:
+        st.subheader("Natural Flow Finder Inputs")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            valid_conduits = [2.875, 3.5]
+            conduit_size = st.selectbox(
+                "Conduit Size (in):",
+                valid_conduits,
+                index=valid_conduits.index(st.session_state.natural_flow_inputs['conduit_size']),
+                key="nf_conduit",
+                help="Select the conduit size (2.875 or 3.5 inches)."
+            )
+            st.session_state.natural_flow_inputs['conduit_size'] = conduit_size
+            
+            valid_prates, valid_glrs = get_valid_options(conduit_size)
+            production_rate = st.selectbox(
+                "Production Rate (stb/day):",
+                valid_prates,
+                index=valid_prates.index(st.session_state.natural_flow_inputs['production_rate']) if st.session_state.natural_flow_inputs['production_rate'] in valid_prates else 0,
+                key="nf_prate",
+                help="Select the production rate (50 to 600 stb/day)."
+            )
+            st.session_state.natural_flow_inputs['production_rate'] = production_rate
+            
+            glr_option = st.selectbox(
+                "GLR (scf/stb):",
+                ["Custom"] + valid_glrs.get(production_rate, []),
+                key="nf_glr",
+                help="Select a valid GLR or enter a custom value."
+            )
+            if glr_option == "Custom":
+                glr = st.number_input(
+                    "Custom GLR:",
+                    min_value=0.0,
+                    value=st.session_state.natural_flow_inputs['glr'],
+                    step=100.0,
+                    key="nf_custom_glr",
+                    help="Enter a custom GLR value (must be within valid ranges)."
+                )
+            else:
+                glr = float(glr_option)
+            st.session_state.natural_flow_inputs['glr'] = glr
+        
+        with col2:
+            pwh = st.number_input(
+                "Wellhead Pressure, pwh (psi):",
+                min_value=0.0,
+                max_value=4000.0,
+                value=st.session_state.natural_flow_inputs['pwh'],
+                step=10.0,
+                help="Enter the wellhead pressure (0 to 4000 psi)."
+            )
+            st.session_state.natural_flow_inputs['pwh'] = pwh
+            
+            D = st.number_input(
+                "Well Length, D (ft):",
+                min_value=0.0,
+                max_value=31000.0,
+                value=st.session_state.natural_flow_inputs['D'],
+                step=100.0,
+                help="Enter the well length (y1 + D ≤ 31000 ft)."
+            )
+            st.session_state.natural_flow_inputs['D'] = D
+            
+            pr = st.number_input(
+                "Reservoir Pressure, Pr (psi):",
+                min_value=0.0,
+                max_value=4000.0,
+                value=st.session_state.natural_flow_inputs['pr'],
+                step=10.0,
+                help="Enter the reservoir pressure (0 to 4000 psi)."
+            )
+            st.session_state.natural_flow_inputs['pr'] = pr
+        
+        st.subheader("IPR Method")
+        ipr_method = st.selectbox(
+            "Select IPR Method:",
+            ["Fetkovich", "Vogel", "Composite"],
+            index=["Fetkovich", "Vogel", "Composite"].index(st.session_state.natural_flow_inputs['ipr_method']),
+            help="Choose the IPR calculation method."
+        )
+        st.session_state.natural_flow_inputs['ipr_method'] = ipr_method
+        
+        if ipr_method == "Fetkovich":
+            col3, col4 = st.columns(2)
+            with col3:
+                c = st.number_input(
+                    "C (optional):",
+                    min_value=0.0,
+                    value=st.session_state.natural_flow_inputs['c'],
+                    step=0.00001,
+                    format="%.6f",
+                    help="Fetkovich C parameter (leave blank to calculate)."
+                )
+                n = st.number_input(
+                    "n (optional):",
+                    min_value=0.0,
+                    max_value=2.0,
+                    value=st.session_state.natural_flow_inputs['n'],
+                    step=0.1,
+                    help="Fetkovich n parameter (leave blank to calculate)."
+                )
+            with col4:
+                q01 = st.number_input("Q01 (stb/day):", min_value=0.0, value=st.session_state.natural_flow_inputs['q01'], step=10.0)
+                pwf1 = st.number_input("Pwf1 (psi):", min_value=0.0, value=st.session_state.natural_flow_inputs['pwf1'], step=10.0)
+                q02 = st.number_input("Q02 (stb/day):", min_value=0.0, value=st.session_state.natural_flow_inputs['q02'], step=10.0)
+                pwf2 = st.number_input("Pwf2 (psi):", min_value=0.0, value=st.session_state.natural_flow_inputs['pwf2'], step=10.0)
+            st.session_state.natural_flow_inputs.update({'c': c, 'n': n, 'q01': q01, 'pwf1': pwf1, 'q02': q02, 'pwf2': pwf2})
+        elif ipr_method == "Vogel":
+            q_max = st.number_input(
+                "Q_max (stb/day):",
+                min_value=0.0,
+                value=st.session_state.natural_flow_inputs['q_max'],
+                step=10.0,
+                help="Maximum production rate for Vogel method."
+            )
+            st.session_state.natural_flow_inputs['q_max'] = q_max
+        elif ipr_method == "Composite":
+            col3, col4 = st.columns(2)
+            with col3:
+                j_star = st.number_input(
+                    "J* (stb/day/psi):",
+                    min_value=0.0,
+                    value=st.session_state.natural_flow_inputs['j_star'],
+                    step=0.1,
+                    help="Productivity index for Composite method."
+                )
+            with col4:
+                p_b = st.number_input(
+                    "Bubble Point Pressure, P_b (psi):",
+                    min_value=0.0,
+                    value=st.session_state.natural_flow_inputs['p_b'],
+                    step=10.0,
+                    help="Bubble point pressure for Composite method."
+                )
+            st.session_state.natural_flow_inputs.update({'j_star': j_star, 'p_b': p_b})
+        
+        calculate = st.button("Calculate", key="nf_calculate")
+    
+    with results_tab:
+        if calculate:
+            with st.spinner("Calculating..."):
+                # Validate inputs
+                errors = []
+                if not validate_conduit_size(conduit_size):
+                    errors.append("Invalid conduit size.")
+                if not validate_production_rate(production_rate):
+                    errors.append("Invalid production rate.")
+                if not validate_glr(conduit_size, production_rate, glr):
+                    errors.append(f"Invalid GLR. Valid ranges: {get_valid_glr_range(conduit_size, production_rate)}")
+                    ranges = interpolation_ranges.get((conduit_size, production_rate), [])
+                    if ranges:
+                        min_glr, max_glr = ranges[0]
+                        glr = min(max_glr, max(min_glr, glr))
+                        st.info(f"GLR auto-corrected to {glr} scf/stb.")
+                if not validate_pressure(pwh, "wellhead pressure"):
+                    errors.append("Invalid wellhead pressure.")
+                if not validate_pressure(pr, "reservoir pressure"):
+                    errors.append("Invalid reservoir pressure.")
+                if not validate_depth_and_pressure(0, D):
+                    errors.append("Invalid well length.")
+                
+                if errors:
+                    for error in errors:
+                        st.error(error)
+                    logger.error(f"Natural Flow Finder errors: {errors}")
+                else:
+                    try:
+                        # Calculate TPR points
+                        tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, reference_data)
+                        
+                        # Calculate IPR points
+                        if ipr_method == "Fetkovich":
+                            c, n, ipr_points, fetkovich_points = calculate_ipr_fetkovich(
+                                pr, c, n, q01, pwf1, q02, pwf2
+                            )
+                        elif ipr_method == "Vogel":
+                            q_max, ipr_points = calculate_ipr_vogel(pr, q_max)
+                            fetkovich_points = []
+                        else:  # Composite
+                            j_star, p_b, ipr_points = calculate_ipr_composite(pr, j_star, p_b)
+                            fetkovich_points = []
+                        
+                        # Find intersection
+                        intersection_q0, intersection_p = find_intersection(tpr_points, ipr_points, pr)
+                        
+                        # Display results
+                        if intersection_q0 is not None and intersection_p is not None:
+                            st.write(f"**Natural Flow Rate**: {intersection_q0:.2f} stb/day")
+                            st.write(f"**Flowing Bottomhole Pressure**: {intersection_p:.2f} psi")
+                        else:
+                            st.warning("No valid natural flow point found.")
+                        
+                        st.session_state.natural_flow_results = {
+                            'tpr_points': tpr_points,
+                            'ipr_points': ipr_points,
+                            'intersection_q0': intersection_q0,
+                            'intersection_p': intersection_p,
+                            'pr': pr,
+                            'glr': glr,
+                            'conduit_size': conduit_size,
+                            'fetkovich_points': fetkovich_points
+                        }
+                        
+                        # Download results
+                        if tpr_points and ipr_points:
+                            st.download_button(
+                                label="Download Results as Excel",
+                                data=export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersection_p),
+                                file_name="natural_flow_results.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                    
+                    except ValueError as e:
+                        st.error(f"Calculation failed: {str(e)}")
+                        logger.error(f"Natural Flow Finder calculation failed: {str(e)}")
+    
+    with plot_tab:
+        if 'natural_flow_results' in st.session_state and calculate:
+            plot_mode = 'color' if st.session_state.theme == 'light' else 'bw'
+            fig = plot_curves(
+                st.session_state.natural_flow_results['tpr_points'],
+                st.session_state.natural_flow_results['ipr_points'],
+                st.session_state.natural_flow_results['pr'],
+                st.session_state.natural_flow_results['intersection_q0'],
+                st.session_state.natural_flow_results['intersection_p'],
+                st.session_state.natural_flow_results['glr'],
+                st.session_state.natural_flow_results['conduit_size'],
+                mode=plot_mode
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Download plot
+            st.download_button(
+                label="Download TPR/IPR Plot as PNG",
+                data=export_plot_to_png(fig),
+                file_name="tpr_ipr_plot.png",
+                mime="image/png"
+            )
+            st.download_button(
+                label="Download TPR/IPR Plot as PDF",
+                data=export_plot_to_pdf(fig),
+                file_name="tpr_ipr_plot.pdf",
+                mime="application/pdf"
+            )
+            
+            # Fetkovich-specific plots
+            if ipr_method == "Fetkovich" and st.session_state.natural_flow_results['fetkovich_points']:
+                c, n, _, _ = calculate_ipr_fetkovich(pr, q01=q01, pwf1=pwf1, q02=q02, pwf2=pwf2)
+                fig_log = plot_fetkovich_log_log(st.session_state.natural_flow_results['fetkovich_points'], pr, c, n, mode=plot_mode)
+                if fig_log:
+                    st.plotly_chart(fig_log, use_container_width=True)
+                    st.download_button(
+                        label="Download Log-Log Plot as PNG",
+                        data=export_plot_to_png(fig_log),
+                        file_name="fetkovich_log_log.png",
+                        mime="image/png"
+                    )
+                fig_faf = plot_fetkovich_flow_after_flow(st.session_state.natural_flow_results['fetkovich_points'], pr, mode=plot_mode)
+                if fig_faf:
+                    st.plotly_chart(fig_faf, use_container_width=True)
+                    st.download_button(
+                        label="Download Flow-After-Flow Plot as PNG",
+                        data=export_plot_to_png(fig_faf),
+                        file_name="fetkovich_flow_after_flow.png",
+                        mime="image/png"
+                    )
+    
+    with logs_tab:
+        st.write("**Calculation Logs**")
+        st.write("Any warnings or informational messages will appear here.")
+
+def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates):
+    """UI for GLR Graph Drawer: Plot pressure vs. depth for all GLRs."""
+    logger.info("Running GLR Graph Drawer UI")
+    
+    # Initialize session state for inputs
+    if 'glr_graph_inputs' not in st.session_state:
+        st.session_state.glr_graph_inputs = {
+            'conduit_size': 2.875,
+            'production_rate': 100
+        }
+    
+    # Create tabs
+    input_tab, plot_tab, logs_tab = st.tabs(["Inputs", "Plot", "Logs"])
+    
+    with input_tab:
+        st.subheader("GLR Graph Drawer Inputs")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            valid_conduits = [2.875, 3.5]
+            conduit_size = st.selectbox(
+                "Conduit Size (in):",
+                valid_conduits,
+                index=valid_conduits.index(st.session_state.glr_graph_inputs['conduit_size']),
+                key="glr_conduit",
+                help="Select the conduit size (2.875 or 3.5 inches)."
+            )
+            st.session_state.glr_graph_inputs['conduit_size'] = conduit_size
+            
+        with col2:
+            valid_prates, _ = get_valid_options(conduit_size)
+            production_rate = st.selectbox(
+                "Production Rate (stb/day):",
+                valid_prates,
+                index=valid_prates.index(st.session_state.glr_graph_inputs['production_rate']) if st.session_state.glr_graph_inputs['production_rate'] in valid_prates else 0,
+                key="glr_prate",
+                help="Select the production rate (50 to 600 stb/day)."
+            )
+            st.session_state.glr_graph_inputs['production_rate'] = production_rate
+        
+        plot = st.button("Generate GLR Graphs", key="glr_plot")
+    
+    with plot_tab:
+        if plot:
+            with st.spinner("Generating graphs..."):
+                # Validate inputs
+                errors = []
+                if not validate_conduit_size(conduit_size):
+                    errors.append("Invalid conduit size.")
+                if not validate_production_rate(production_rate):
+                    errors.append("Invalid production rate.")
+                
+                if errors:
+                    for error in errors:
+                        st.error(error)
+                    logger.error(f"GLR Graph Drawer errors: {errors}")
+                else:
+                    plot_mode = 'color' if st.session_state.theme == 'light' else 'bw'
+                    fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode=plot_mode)
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
+                        st.session_state.glr_graph_results = {'fig': fig}
+                        
+                        # Download plot
+                        st.download_button(
+                            label="Download GLR Plot as PNG",
+                            data=export_plot_to_png(fig),
+                            file_name="glr_plot.png",
+                            mime="image/png"
+                        )
+                        st.download_button(
+                            label="Download GLR Plot as PDF",
+                            data=export_plot_to_pdf(fig),
+                            file_name="glr_plot.pdf",
+                            mime="application/pdf"
+                        )
+                    else:
+                        st.error("Failed to generate GLR graphs. Please check inputs.")
+    
+    with logs_tab:
+        st.write("**Plotting Logs**")
+        st.write("Any warnings or informational messages will appear here.")
+
+def post_task_menu():
+    """Display a button to return to the main menu."""
+    if st.button("Back to Main Menu"):
+        st.session_state.mode_select = None
+        st.experimental_rerun()
