@@ -4,4 +4,4 @@ numpy
 scipy
 plotly
 requests
-openpyx
+openpyxl
