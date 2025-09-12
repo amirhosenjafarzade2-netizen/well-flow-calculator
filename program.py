@@ -527,7 +527,7 @@ def plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit
     ax.plot(ipr_q0, ipr_pwf, 'r-', linewidth=2, label=f'IPR (Pr: {pr} psi, Params: {ipr_params})')
 
     # Plot intersection point if found
-    if intersection_p is not None and intersection_q0 is not None:
+    if intersection_q0 is not None and intersection_p is not None:
         ax.scatter([intersection_q0], [intersection_p], color='green', s=100, marker='*',
                    label=f'Natural Flow Point (Q0: {intersection_q0:.2f} stb/day, P: {intersection_p:.2f} psi)')
 
@@ -542,8 +542,15 @@ def plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit
     ax.xaxis.set_minor_locator(plt.MultipleLocator(20))
     ax.yaxis.set_major_locator(plt.MultipleLocator(1000))
     ax.yaxis.set_minor_locator(plt.MultipleLocator(200))
-    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8, frameon=True, edgecolor='black')
     ax.set_title('TPR and IPR Curves with Natural Flow Point')
+    
+    # Place legend at the bottom with multiple columns if needed
+    ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.3), fontsize=8, frameon=True, 
+             edgecolor='black', ncol=1)
+    
+    # Adjust layout to prevent clipping of the legend
+    plt.tight_layout()
+    
     return fig
 
 # Function to calculate Fetkovich parameters and plot TPR and IPR lines
