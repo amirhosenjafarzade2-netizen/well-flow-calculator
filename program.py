@@ -70,7 +70,7 @@ def parse_name(name):
 def load_reference_data():
     st.write("Loading reference Excel file from GitHub...")
     # Replace with your GitHub raw file URL
-    github_url = "https://raw.githubusercontent.com/username/repository/main/reference excel.xlsx"
+    github_url = "https://raw.githubusercontent.com/amirhosenjafarzade2-netizen/repository/main/reference excel.xlsx"
     try:
         # Fetch the file from GitHub
         response = requests.get(github_url)
