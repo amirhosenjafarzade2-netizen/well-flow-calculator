@@ -127,12 +127,14 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                 if not validate_production_rate(production_rate):
                     errors.append("Invalid production rate.")
                 if not validate_glr(conduit_size, production_rate, glr):
-                    errors.append(f"Invalid GLR. Valid ranges: {get_valid_glr_range(conduit_size, production_rate)}")
+                    valid_range = get_valid_glr_range(conduit_size, production_rate)
+                    errors.append(f"Invalid GLR. Valid ranges: {valid_range}")
                     ranges = interpolation_ranges.get((conduit_size, production_rate), [])
                     if ranges:
                         min_glr, max_glr = ranges[0]
                         glr = min(max_glr, max(min_glr, glr))
                         st.info(f"GLR auto-corrected to {glr} scf/stb.")
+                
                 if not validate_pressure(p1, "wellhead pressure"):
                     errors.append("Invalid wellhead pressure.")
                 if not validate_depth_and_pressure(0, D):
@@ -574,7 +576,7 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                         conduit_sizes = [2.875, 3.5]
                         production_rates_list = [50.0, 100.0, 200.0, 400.0, 600.0]
                         total_graphs = len(conduit_sizes) * len(production_rates_list)
-
+                        
                         for i, (cs, pr) in enumerate([(cs, pr) for cs in conduit_sizes for pr in production_rates_list]):
                             st.write(f"Generating GLR graph {i+1}/{total_graphs} (Conduit: {cs} in, Production: {pr} stb/day)")
                             fig = plot_glr_graphs(reference_data, cs, pr, mode=plot_mode)
@@ -583,7 +585,7 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                             else:
                                 st.warning(f"No valid GLR curves for conduit {cs} in, production {pr} stb/day.")
                                 logger.warning(f"No valid GLR curves for conduit {cs}, production {pr}")
-
+                        
                         if figs:
                             st.subheader("GLR Graphs")
                             for fig, cs, pr in figs:
