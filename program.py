@@ -437,6 +437,7 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
     if len(ipr_points) < 2:
         raise ValueError("Insufficient valid IPR points to plot (need at least 2).")
     return c, n, ipr_points, points
+
     
 # Modular function to calculate IPR parameters and points using Vogel method
 def calculate_ipr_vogel(pr, q_max):
@@ -571,23 +572,13 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
         st.error(str(e))
         return None, None, None
 
-    # Interpolate TPR curve with bounded extrapolation
-    try:
-        tpr_q0, tpr_p2 = zip(*tpr_points)
-        # Use bounds_error=True and set fill_value to min/max production rates
-        tpr_interp = interp1d(tpr_p2, tpr_q0, kind='linear', bounds_error=True, 
-                             fill_value=(min(tpr_q0), max(tpr_q0)))
-    except Exception as e:
-        st.error(f"Error interpolating TPR curve: {str(e)}")
-        return None, None, None
-
     # Calculate IPR based on method
     try:
         if ipr_method == 'fetkovich':
             c, n, ipr_points, fetkovich_points = calculate_ipr_fetkovich(pr, **ipr_params)
             ipr_params_str = f'n={n:.4f}, C={c:.4e}'
             def ipr_func(p):
-                return c * (pr**n - p**n)
+                return c * (pr**2 - p**2)**n
         elif ipr_method == 'vogel':
             q_max = ipr_params['q_max']
             ipr_points = calculate_ipr_vogel(pr, q_max)[1]
@@ -611,7 +602,7 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
         return None, None, None
 
     # Find intersection with feasibility check
-    intersection_q0, intersection_p = find_intersection(tpr_interp, ipr_func, pr)
+    intersection_q0, intersection_p = find_intersection(tpr_points, ipr_points, pr)
     if intersection_q0 is None:
         st.warning("Well cannot flow naturally; artificial lift required. Showing TPR and IPR curves for visualization.")
 
