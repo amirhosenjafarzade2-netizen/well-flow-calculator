@@ -60,15 +60,47 @@ def export_plot_to_png(fig):
     Export a Plotly figure to PNG format.
     Returns bytes for Streamlit download.
     """
-    buf = io.BytesIO()
-    fig.write_image(buf, format='png')
-    return buf.getvalue()
+    logger = setup_logging()
+    if fig is None or not hasattr(fig, 'data') or not fig.data:
+        logger.error("Invalid or empty Plotly figure provided for PNG export.")
+        raise ValueError("Cannot export plot: Invalid or empty figure.")
+    
+    try:
+        import kaleido
+        buf = io.BytesIO()
+        fig.write_image(buf, format='png')
+        return buf.getvalue()
+    except ImportError:
+        logger.error("Kaleido is not installed, cannot export plot to PNG.")
+        raise ImportError("Kaleido is required for PNG export but is not installed.")
+    except RuntimeError as e:
+        logger.error(f"Failed to export plot to PNG: {str(e)}")
+        raise RuntimeError("Failed to export plot to PNG: Chrome browser may be missing or misconfigured.")
+    except Exception as e:
+        logger.error(f"Unexpected error during PNG export: {str(e)}")
+        raise
 
 def export_plot_to_pdf(fig):
     """
     Export a Plotly figure to PDF format.
     Returns bytes for Streamlit download.
     """
-    buf = io.BytesIO()
-    fig.write_image(buf, format='pdf')
-    return buf.getvalue()
+    logger = setup_logging()
+    if fig is None or not hasattr(fig, 'data') or not fig.data:
+        logger.error("Invalid or empty Plotly figure provided for PDF export.")
+        raise ValueError("Cannot export plot: Invalid or empty figure.")
+    
+    try:
+        import kaleido
+        buf = io.BytesIO()
+        fig.write_image(buf, format='pdf')
+        return buf.getvalue()
+    except ImportError:
+        logger.error("Kaleido is not installed, cannot export plot to PDF.")
+        raise ImportError("Kaleido is required for PDF export but is not installed.")
+    except RuntimeError as e:
+        logger.error(f"Failed to export plot to PDF: {str(e)}")
+        raise RuntimeError("Failed to export plot to PDF: Chrome browser may be missing or misconfigured.")
+    except Exception as e:
+        logger.error(f"Unexpected error during PDF export: {str(e)}")
+        raise
