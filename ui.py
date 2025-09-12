@@ -547,34 +547,58 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                     errors.append("Invalid conduit size.")
                 if not validate_production_rate(production_rate):
                     errors.append("Invalid production rate.")
+                if not reference_data:
+                    errors.append("Reference data is empty or invalid.")
                 
                 if errors:
                     for error in errors:
                         st.error(error)
                     logger.error(f"GLR Graph Drawer errors: {errors}")
                 else:
-                    theme = st.get_option("theme.base")  # "light" or "dark"
-                    plot_mode = 'color' if theme == 'light' else 'bw'
-                    fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode=plot_mode)
-                    if fig:
-                        st.plotly_chart(fig, use_container_width=True)
-                        st.session_state.glr_graph_results = {'fig': fig}
+                    try:
+                        theme = st.get_option("theme.base")  # "light" or "dark"
+                        plot_mode = 'color' if theme == 'light' else 'bw'
+                        fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode=plot_mode)
                         
-                        # Download plot
-                        st.download_button(
-                            label="Download GLR Plot as PNG",
-                            data=export_plot_to_png(fig),
-                            file_name="glr_plot.png",
-                            mime="image/png"
-                        )
-                        st.download_button(
-                            label="Download GLR Plot as PDF",
-                            data=export_plot_to_pdf(fig),
-                            file_name="glr_plot.pdf",
-                            mime="application/pdf"
-                        )
-                    else:
-                        st.error("Failed to generate GLR graphs. Please check inputs.")
+                        if fig is None or not hasattr(fig, 'data') or not fig.data:
+                            st.error("Failed to generate GLR graphs: Invalid or empty figure returned.")
+                            logger.error("plot_glr_graphs returned an invalid or empty figure.")
+                        else:
+                            st.plotly_chart(fig, use_container_width=True)
+                            st.session_state.glr_graph_results = {'fig': fig}
+                            
+                            # Check if kaleido is available and handle export
+                            try:
+                                import kaleido
+                                # Download plot as PNG
+                                try:
+                                    st.download_button(
+                                        label="Download GLR Plot as PNG",
+                                        data=export_plot_to_png(fig),
+                                        file_name="glr_plot.png",
+                                        mime="image/png"
+                                    )
+                                except Exception as e:
+                                    st.error("Failed to export plot as PNG: Chrome browser may be missing or misconfigured.")
+                                    logger.error(f"PNG export failed: {str(e)}")
+                                
+                                # Download plot as PDF
+                                try:
+                                    st.download_button(
+                                        label="Download GLR Plot as PDF",
+                                        data=export_plot_to_pdf(fig),
+                                        file_name="glr_plot.pdf",
+                                        mime="application/pdf"
+                                    )
+                                except Exception as e:
+                                    st.error("Failed to export plot as PDF: Chrome browser may be missing or misconfigured.")
+                                    logger.error(f"PDF export failed: {str(e)}")
+                            except ImportError:
+                                st.error("Kaleido is not installed. Image export is not available.")
+                                logger.error("Kaleido package is missing, cannot export plot to PNG/PDF.")
+                    except Exception as e:
+                        st.error(f"Failed to generate GLR graphs: {str(e)}")
+                        logger.error(f"GLR Graph Drawer failed: {str(e)}")
     
     with logs_tab:
         st.write("**Plotting Logs**")
