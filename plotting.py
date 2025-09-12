@@ -59,6 +59,11 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
         hovertemplate='p2: %{x:.2f} psi<br>y2: %{y:.2f} ft'
     ))
     
+    # Common grid settings
+    gridcolor = '#D3D3D3' if mode == 'color' else 'black'
+    minor_gridcolor = '#D3D3D3' if mode == 'color' else 'black'
+    minor_gridopacity = 0.5 if mode == 'color' else 0.2
+    
     # Update layout
     fig.update_layout(
         title=f'Pressure vs. Depth (Q0={production_rate} stb/day, GLR={glr_input}, {interpolation_status})',
@@ -74,13 +79,22 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
             tick0=0,
             dtick=1000,
             minor=dict(dtick=200),
+            showgrid=True,
+            gridcolor=gridcolor,
+            gridwidth=1,
+            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
             title_standoff=10,
             side='top'
         ),
         yaxis=dict(
             tick0=0,
             dtick=1000,
-            minor=dict(dtick=200)
+            minor=dict(dtick=200),
+            showgrid=True,
+            gridcolor=gridcolor,
+            gridwidth=1,
+            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            title_standoff=10
         ),
         legend=dict(
             x=1,
@@ -91,14 +105,7 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
             borderwidth=1
         ),
         plot_bgcolor='#F5F5F5' if mode == 'color' else 'white',
-        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white',
-        showgrid=True,
-        gridcolor='#D3D3D3' if mode == 'color' else 'black',
-        gridwidth=1,
-        minor_grids=True,
-        minor_gridcolor='#D3D3D3' if mode == 'color' else 'black',
-        minor_gridwidth=1,
-        minor_gridopacity=0.5 if mode == 'color' else 0.2
+        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white'
     )
     
     logger.info("Pressure vs. depth plot generated successfully.")
@@ -160,6 +167,11 @@ def plot_curves(tpr_points, ipr_points, pr, intersection_q0, intersection_p, glr
             hovertemplate='Q0: %{x:.2f} stb/day<br>P: %{y:.2f} psi'
         ))
     
+    # Common grid settings
+    gridcolor = '#D3D3D3' if mode == 'color' else 'black'
+    minor_gridcolor = '#D3D3D3' if mode == 'color' else 'black'
+    minor_gridopacity = 0.5 if mode == 'color' else 0.2
+    
     # Update layout
     fig.update_layout(
         title=f'TPR and IPR Curves (GLR={glr}, Conduit={conduit_size}, Pr={pr:.2f} psi)',
@@ -174,12 +186,21 @@ def plot_curves(tpr_points, ipr_points, pr, intersection_q0, intersection_p, glr
             tick0=0,
             dtick=100,
             minor=dict(dtick=20),
+            showgrid=True,
+            gridcolor=gridcolor,
+            gridwidth=1,
+            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
             title_standoff=10
         ),
         yaxis=dict(
             tick0=0,
             dtick=1000,
-            minor=dict(dtick=200)
+            minor=dict(dtick=200),
+            showgrid=True,
+            gridcolor=gridcolor,
+            gridwidth=1,
+            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            title_standoff=10
         ),
         legend=dict(
             x=0.5,
@@ -190,14 +211,7 @@ def plot_curves(tpr_points, ipr_points, pr, intersection_q0, intersection_p, glr
             borderwidth=1
         ),
         plot_bgcolor='#F5F5F5' if mode == 'color' else 'white',
-        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white',
-        showgrid=True,
-        gridcolor='#D3D3D3' if mode == 'color' else 'black',
-        gridwidth=1,
-        minor_grids=True,
-        minor_gridcolor='#D3D3D3' if mode == 'color' else 'black',
-        minor_gridwidth=1,
-        minor_gridopacity=0.5 if mode == 'color' else 0.2
+        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white'
     )
     
     logger.info("TPR/IPR curves plot generated successfully.")
@@ -248,6 +262,11 @@ def plot_fetkovich_log_log(points, pr, c, n, mode='color'):
         hovertemplate='ΔP²: %{x:.2f} psi²<br>Q0: %{y:.2f} stb/day'
     ))
     
+    # Common grid settings
+    gridcolor = '#D3D3D3' if mode == 'color' else 'black'
+    minor_gridcolor = '#D3D3D3' if mode == 'color' else 'black'
+    minor_gridopacity = 0.5 if mode == 'color' else 0.2
+    
     # Update layout
     fig.update_layout(
         title=f'Fetkovich Log-Log Plot (C={c:.2e}, n={n:.2f})',
@@ -260,10 +279,18 @@ def plot_fetkovich_log_log(points, pr, c, n, mode='color'):
         hovermode='closest',
         xaxis=dict(
             tick0=0,
+            showgrid=True,
+            gridcolor=gridcolor,
+            gridwidth=1,
+            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
             title_standoff=10
         ),
         yaxis=dict(
             tick0=0,
+            showgrid=True,
+            gridcolor=gridcolor,
+            gridwidth=1,
+            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
             title_standoff=10
         ),
         legend=dict(
@@ -275,14 +302,7 @@ def plot_fetkovich_log_log(points, pr, c, n, mode='color'):
             borderwidth=1
         ),
         plot_bgcolor='#F5F5F5' if mode == 'color' else 'white',
-        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white',
-        showgrid=True,
-        gridcolor='#D3D3D3' if mode == 'color' else 'black',
-        gridwidth=1,
-        minor_grids=True,
-        minor_gridcolor='#D3D3D3' if mode == 'color' else 'black',
-        minor_gridwidth=1,
-        minor_gridopacity=0.5 if mode == 'color' else 0.2
+        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white'
     )
     
     logger.info("Fetkovich log-log plot generated successfully.")
@@ -319,6 +339,11 @@ def plot_fetkovich_flow_after_flow(points, pr, mode='color'):
         hovertemplate='Q0: %{x:.2f} stb/day<br>Pwf: %{y:.2f} psi'
     ))
     
+    # Common grid settings
+    gridcolor = '#D3D3D3' if mode == 'color' else 'black'
+    minor_gridcolor = '#D3D3D3' if mode == 'color' else 'black'
+    minor_gridopacity = 0.5 if mode == 'color' else 0.2
+    
     # Update layout
     fig.update_layout(
         title=f'Fetkovich Flow-After-Flow Plot (Pr={pr:.2f} psi)',
@@ -330,12 +355,21 @@ def plot_fetkovich_flow_after_flow(points, pr, mode='color'):
         hovermode='closest',
         xaxis=dict(
             tick0=0,
+            showgrid=True,
+            gridcolor=gridcolor,
+            gridwidth=1,
+            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
             title_standoff=10
         ),
         yaxis=dict(
             tick0=0,
             dtick=1000,
-            minor=dict(dtick=200)
+            minor=dict(dtick=200),
+            showgrid=True,
+            gridcolor=gridcolor,
+            gridwidth=1,
+            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            title_standoff=10
         ),
         legend=dict(
             x=0,
@@ -346,14 +380,7 @@ def plot_fetkovich_flow_after_flow(points, pr, mode='color'):
             borderwidth=1
         ),
         plot_bgcolor='#F5F5F5' if mode == 'color' else 'white',
-        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white',
-        showgrid=True,
-        gridcolor='#D3D3D3' if mode == 'color' else 'black',
-        gridwidth=1,
-        minor_grids=True,
-        minor_gridcolor='#D3D3D3' if mode == 'color' else 'black',
-        minor_gridwidth=1,
-        minor_gridopacity=0.5 if mode == 'color' else 0.2
+        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white'
     )
     
     logger.info("Fetkovich flow-after-flow plot generated successfully.")
@@ -475,6 +502,11 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
         logger.error("No valid traces added to GLR plot")
         return None
     
+    # Common grid settings
+    gridcolor = '#D3D3D3' if mode == 'color' else 'black'
+    minor_gridcolor = '#D3D3D3' if mode == 'color' else 'black'
+    minor_gridopacity = 0.5 if mode == 'color' else 0.2
+    
     # Update layout
     fig.update_layout(
         title=f'GLR Curves (Conduit: {conduit_size} in, Production: {production_rate} stb/day)',
@@ -490,13 +522,22 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
             tick0=0,
             dtick=1000,
             minor=dict(dtick=200),
+            showgrid=True,
+            gridcolor=gridcolor,
+            gridwidth=1,
+            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
             title_standoff=10,
             side='top'
         ),
         yaxis=dict(
             tick0=0,
             dtick=1000,
-            minor=dict(dtick=200)
+            minor=dict(dtick=200),
+            showgrid=True,
+            gridcolor=gridcolor,
+            gridwidth=1,
+            minor=dict(showgrid=True, gridcolor=minor_gridcolor, gridwidth=1),
+            title_standoff=10
         ),
         legend=dict(
             x=1,
@@ -508,14 +549,7 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
             title=dict(text='Multiply GLR line numbers by 100') if mode == 'bw' else None
         ),
         plot_bgcolor='#F5F5F5' if mode == 'color' else 'white',
-        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white',
-        showgrid=True,
-        gridcolor='#D3D3D3' if mode == 'color' else 'black',
-        gridwidth=1,
-        minor_grids=True,
-        minor_gridcolor='#D3D3D3' if mode == 'color' else 'black',
-        minor_gridwidth=1,
-        minor_gridopacity=0.5 if mode == 'color' else 0.2
+        paper_bgcolor='#F5F5F5' if mode == 'color' else 'white'
     )
     
     logger.info(f"GLR graphs generated successfully with {traces_added} traces.")
