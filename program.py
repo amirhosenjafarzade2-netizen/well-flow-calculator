@@ -483,22 +483,44 @@ def find_intersection(tpr_interp, ipr_func, pr):
         st.write(f"No sign change detected: f_low={f_low:.2f}, f_high={f_high:.2f}")
         return None, None  # No sign change, no intersection
 
-    # Use bisect to find root
+    # Try bisect method first
     try:
         intersection_p = bisect(intersection_func, p_low, p_high, maxiter=200)
         q0_ipr = ipr_func(intersection_p)
         q0_tpr = tpr_interp(intersection_p)
-        # Further relaxed tolerance and production rate limit
+        # Relaxed tolerance and production rate limit
         if (0 <= intersection_p <= max(pr, 4000) and 
-            0 <= q0_ipr <= 700 and 0 <= q0_tpr <= 700 and 
-            abs(q0_ipr - q0_tpr) < 0.5):
-            st.write(f"Intersection found: p={intersection_p:.2f}, q0_ipr={q0_ipr:.2f}, q0_tpr={q0_tpr:.2f}, diff={abs(q0_ipr - q0_tpr):.4f}")
+            0 <= q0_ipr <= 750 and 0 <= q0_tpr <= 750 and 
+            abs(q0_ipr - q0_tpr) < 1.0):
+            st.write(f"Intersection found (bisect): p={intersection_p:.2f}, q0_ipr={q0_ipr:.2f}, q0_tpr={q0_tpr:.2f}, diff={abs(q0_ipr - q0_tpr):.4f}")
             return q0_ipr, intersection_p
         else:
-            st.write(f"Intersection rejected: p={intersection_p:.2f}, q0_ipr={q0_ipr:.2f}, q0_tpr={q0_tpr:.2f}, diff={abs(q0_ipr - q0_tpr):.4f}")
-            return None, None
+            st.write(f"Intersection rejected (bisect): p={intersection_p:.2f}, q0_ipr={q0_ipr:.2f}, q0_tpr={q0_tpr:.2f}, diff={abs(q0_ipr - q0_tpr):.4f}")
     except Exception as e:
         st.write(f"Bisect failed: {str(e)}")
+
+    # Fallback: Grid-based search
+    st.write("Trying grid-based intersection search...")
+    p_values = np.linspace(0, pr, 1000)  # Fine grid for better resolution
+    min_diff = np.inf
+    best_p = None
+    best_q0 = None
+    for p in p_values:
+        try:
+            q0_ipr = ipr_func(p)
+            q0_tpr = tpr_interp(p)
+            diff = abs(q0_ipr - q0_tpr)
+            if diff < min_diff and 0 <= q0_ipr <= 750 and 0 <= q0_tpr <= 750:
+                min_diff = diff
+                best_p = p
+                best_q0 = q0_ipr
+        except:
+            continue
+    if min_diff < 1.0 and best_p is not None:
+        st.write(f"Intersection found (grid): p={best_p:.2f}, q0_ipr={best_q0:.2f}, q0_tpr={tpr_interp(best_p):.2f}, diff={min_diff:.4f}")
+        return best_q0, best_p
+    else:
+        st.write(f"Grid search failed: min_diff={min_diff:.4f}, best_p={best_p}")
         return None, None
 
 # Modular function to plot TPR and IPR curves
@@ -575,7 +597,7 @@ def plot_natural_flow(conduit_size, glr, D, pwh, pr, ipr_method, ipr_params, dat
             c, n, ipr_points, fetkovich_points = calculate_ipr_fetkovich(pr, **ipr_params)
             ipr_params_str = f'n={n:.4f}, C={c:.4e}'
             def ipr_func(p):
-                return c * (pr**2 - p**2)**n
+                return c * (pr**n - p**n)
         elif ipr_method == 'vogel':
             q_max = ipr_params['q_max']
             ipr_points = calculate_ipr_vogel(pr, q_max)[1]
