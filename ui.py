@@ -39,7 +39,6 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
     """UI for p2 Finder: Calculate wellhead and bottomhole pressures and depths."""
     logger.info("Running p2 Finder UI")
     
-    # Initialize session state for inputs
     if 'p2_finder_inputs' not in st.session_state:
         st.session_state.p2_finder_inputs = {
             'conduit_size': 2.875,
@@ -88,7 +87,6 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
             )
         else:
             glr = float(glr_option)
-        
         st.session_state.p2_finder_inputs['glr'] = glr
     
     with col2:
@@ -116,7 +114,6 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
     
     if calculate:
         with st.spinner("Calculating..."):
-            # Validate inputs
             errors = []
             if not validate_conduit_size(conduit_size):
                 errors.append("Invalid conduit size.")
@@ -163,27 +160,33 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                         'glr_input': glr, 'production_rate': production_rate
                     }
                     
-                    fig = plot_results(
-                        p1, y1, y2, p2, D, coeffs, glr, interpolation_status, production_rate,
-                        mode='color'
-                    )
-                    st.subheader("Pressure vs Depth Plot")
-                    st.pyplot(fig)
-                    
-                    # Check for valid fig before download
-                    if fig is not None and len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
-                        try:
-                            st.download_button(
-                                label="Download Plot as PNG",
-                                data=export_plot_to_png(fig),
-                                file_name="p2_finder_plot.png",
-                                mime="image/png"
-                            )
-                        except Exception as e:
-                            st.error(f"Failed to export plot as PNG: {str(e)}")
-                            logger.error(f"PNG export failed: {str(e)}")
-                    else:
-                        st.warning("Plot is empty - cannot export.")
+                    try:
+                        fig = plot_results(
+                            p1, y1, y2, p2, D, coeffs, glr, interpolation_status, production_rate,
+                            mode='color'
+                        )
+                        if fig is not None:
+                            st.subheader("Pressure vs Depth Plot")
+                            st.pyplot(fig)
+                            
+                            if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
+                                try:
+                                    st.download_button(
+                                        label="Download Plot as PNG",
+                                        data=export_plot_to_png(fig),
+                                        file_name="p2_finder_plot.png",
+                                        mime="image/png"
+                                    )
+                                except Exception as e:
+                                    st.error(f"Failed to export plot as PNG: {str(e)}")
+                                    logger.error(f"PNG export failed: {str(e)}")
+                            else:
+                                st.warning("Plot is empty - cannot export.")
+                        else:
+                            st.error("Failed to generate plot.")
+                    except Exception as e:
+                        st.error(f"Failed to plot results: {str(e)}")
+                        logger.error(f"Plotting failed: {str(e)}")
     
     st.write("**Calculation Logs**")
     st.write("Any warnings or informational messages will appear here.")
@@ -409,11 +412,16 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     help="Flowing bottomhole pressure for fourth test point (optional)."
                 )
         st.session_state.natural_flow_inputs.update({
-            'c': c, 'n': n,
-            'q01': q01, 'pwf1': pwf1,
-            'q02': q02, 'pwf2': pwf2,
-            'q03': q03, 'pwf3': pwf3,
-            'q04': q04, 'pwf4': pwf4
+            'c': c if c is not None else 0.0,
+            'n': n if n is not None else 0.0,
+            'q01': q01 if q01 is not None else 0.0,
+            'pwf1': pwf1 if pwf1 is not None else 0.0,
+            'q02': q02 if q02 is not None else 0.0,
+            'pwf2': pwf2 if pwf2 is not None else 0.0,
+            'q03': q03 if q03 is not None else 0.0,
+            'pwf3': pwf3 if pwf3 is not None else 0.0,
+            'q04': q04 if q04 is not None else 0.0,
+            'pwf4': pwf4 if pwf4 is not None else 0.0
         })
     elif ipr_method == "Vogel":
         q_max = st.number_input(
@@ -484,11 +492,11 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             if ipr_method == "Fetkovich":
                 if fetkovich_input_method == "Enter C and n directly":
                     if not validate_fetkovich_parameters(c, n):
-                        errors.append("Invalid Fetkovich parameters.")
+                        errors.append("Invalid Fetkovich parameters: C and n must be positive, n ≤ 2.0.")
                 else:
                     points = [(q01, pwf1), (q02, pwf2), (q03, pwf3), (q04, pwf4)]
                     if not validate_fetkovich_points(points, pr):
-                        errors.append("Invalid Fetkovich test points.")
+                        errors.append("Invalid Fetkovich test points: At least two valid, positive, distinct points required.")
             
             if errors:
                 for error in errors:
@@ -504,13 +512,16 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     if ipr_method == "Fetkovich":
                         c_val, n_val, ipr_points, fetkovich_points = calculate_ipr_fetkovich(
                             pr,
-                            c=c if fetkovich_input_method == "Enter C and n directly" and c > 0 else None,
-                            n=n if fetkovich_input_method == "Enter C and n directly" and n > 0 else None,
-                            q01=q01, pwf1=pwf1, q02=q02, pwf2=pwf2,
-                            q03=q03 if fetkovich_input_method == "Calculate C and n from points" else None,
-                            pwf3=pwf3 if fetkovich_input_method == "Calculate C and n from points" else None,
-                            q04=q04 if fetkovich_input_method == "Calculate C and n from points" else None,
-                            pwf4=pwf4 if fetkovich_input_method == "Calculate C and n from points" else None
+                            c=c if fetkovich_input_method == "Enter C and n directly" and c is not None and c > 0 else None,
+                            n=n if fetkovich_input_method == "Enter C and n directly" and n is not None and n > 0 else None,
+                            q01=q01 if q01 is not None and q01 > 0 else None,
+                            pwf1=pwf1 if pwf1 is not None and pwf1 > 0 else None,
+                            q02=q02 if q02 is not None and q02 > 0 else None,
+                            pwf2=pwf2 if pwf2 is not None and pwf2 > 0 else None,
+                            q03=q03 if fetkovich_input_method == "Calculate C and n from points" and q03 is not None and q03 > 0 else None,
+                            pwf3=pwf3 if fetkovich_input_method == "Calculate C and n from points" and pwf3 is not None and pwf3 > 0 else None,
+                            q04=q04 if fetkovich_input_method == "Calculate C and n from points" and q04 is not None and q04 > 0 else None,
+                            pwf4=pwf4 if fetkovich_input_method == "Calculate C and n from points" and pwf4 is not None and pwf4 > 0 else None
                         )
                         c = c_val
                         n = n_val
@@ -537,7 +548,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         'n': n
                     }
 
-                    # Plot curves even if intersection fails
+                    # Plot curves
                     ipr_params_str = f'Pr: {pr} psi, Params: {ipr_method}'
                     if ipr_method == "Fetkovich":
                         ipr_params_str += f', C: {c:.4e}, n: {n:.4f}'
@@ -552,23 +563,25 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                                 tpr_points, ipr_points, intersection_q0, intersection_p, conduit_size, glr, D, pwh, pr, ipr_params_str,
                                 mode='color'
                             )
-                            st.subheader("TPR and IPR Curves (Intersection indicates Point of Natural Flow)")
-                            st.pyplot(fig)
-                            
-                            # Check for valid fig before download
-                            if fig is not None and len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
-                                try:
-                                    st.download_button(
-                                        label="Download TPR/IPR Plot as PNG",
-                                        data=export_plot_to_png(fig),
-                                        file_name="tpr_ipr_plot.png",
-                                        mime="image/png"
-                                    )
-                                except Exception as e:
-                                    st.error(f"Failed to export plot as PNG: {str(e)}")
-                                    logger.error(f"PNG export failed: {str(e)}")
+                            if fig is not None:
+                                st.subheader("TPR and IPR Curves (Intersection indicates Point of Natural Flow)")
+                                st.pyplot(fig)
+                                
+                                if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
+                                    try:
+                                        st.download_button(
+                                            label="Download TPR/IPR Plot as PNG",
+                                            data=export_plot_to_png(fig),
+                                            file_name="tpr_ipr_plot.png",
+                                            mime="image/png"
+                                        )
+                                    except Exception as e:
+                                        st.error(f"Failed to export plot as PNG: {str(e)}")
+                                        logger.error(f"PNG export failed: {str(e)}")
+                                else:
+                                    st.warning("Plot is empty - cannot export.")
                             else:
-                                st.warning("Plot is empty - cannot export.")
+                                st.error("Failed to generate TPR/IPR plot. Check input data.")
                         except Exception as e:
                             st.error(f"Failed to plot TPR/IPR curves: {str(e)}")
                             logger.error(f"Plotting failed: {str(e)}")
@@ -583,11 +596,9 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     else:
                         st.warning("Well cannot flow naturally; artificial lift required. Showing TPR and IPR curves for visualization.")
                     
-                    # Update session state with intersection results
                     st.session_state.natural_flow_results['intersection_q0'] = intersection_q0
                     st.session_state.natural_flow_results['intersection_p'] = intersection_p
                     
-                    # Export results
                     if tpr_points and ipr_points:
                         st.download_button(
                             label="Download Results as Excel",
@@ -596,7 +607,6 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                     
-                    # Plot Fetkovich-specific plots
                     if ipr_method == "Fetkovich" and fetkovich_points:
                         try:
                             fig_log = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode='color')
@@ -641,6 +651,9 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 except ValueError as e:
                     st.error(f"Calculation failed: {str(e)}")
                     logger.error(f"Natural Flow Finder calculation failed: {str(e)}")
+                except Exception as e:
+                    st.error(f"Unexpected error: {str(e)}")
+                    logger.error(f"Unexpected error in Natural Flow Finder: {str(e)}")
     
     st.write("**Calculation Logs**")
     st.write("Any warnings or informational messages will appear here.")
@@ -703,7 +716,6 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                         st.write(f"Conduit Size: {conduit_size} in, Production Rate: {production_rate} stb/day")
                         st.pyplot(fig)
                         
-                        # Check for valid fig before download
                         if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
                             try:
                                 st.download_button(
