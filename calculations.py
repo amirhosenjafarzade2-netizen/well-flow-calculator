@@ -53,10 +53,8 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
     # Check for extrapolation risks
     if valid_glr1 and (glr_input < valid_range1[0] * 1.05 or glr_input > valid_range1[1] * 0.95):
         logger.warning(f"GLR {glr_input} is near edge of range {valid_range1} for production {prate1}.")
-        st.warning(f"GLR {glr_input} is near the edge of valid range {valid_range1}. Results may be less accurate.")
     if valid_glr2 and (glr_input < valid_range2[0] * 1.05 or glr_input > valid_range2[1] * 0.95):
         logger.warning(f"GLR {glr_input} is near edge of range {valid_range2} for production {prate2}.")
-        st.warning(f"GLR {glr_input} is near the edge of valid range {valid_range2}. Results may be less accurate.")
 
     def get_coefficients(conduit_size, production_rate, glr_input, valid_range, data_ref):
         """
@@ -79,7 +77,6 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
         ]
         if len(relevant_rows) < 1:
             logger.error(f"No data points for conduit {conduit_size}, production {production_rate}, GLR range {valid_range}.")
-            st.error(f"No data points found for conduit size {conduit_size}, production rate {production_rate} in GLR range {valid_range}.")
             return None, None, None, None
         relevant_rows.sort(key=lambda x: x['glr'])
 
@@ -87,7 +84,6 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
             if abs(relevant_rows[0]['glr'] - glr_input) < 1e-6:
                 return relevant_rows[0]['coefficients'], glr_input, glr_input, "exact"
             logger.error(f"Only one GLR point ({relevant_rows[0]['glr']}) available for interpolation.")
-            st.error(f"Only one GLR point ({relevant_rows[0]['glr']}) available in range {valid_range}.")
             return None, None, None, None
 
         lower_row = max([r for r in relevant_rows if r['glr'] <= glr_input], key=lambda x: x['glr'], default=relevant_rows[0])
@@ -135,7 +131,6 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
     y1 = polynomial(p1, coeffs)
     if not np.isfinite(y1) or y1 < 0 or y1 > 31000:
         logger.error(f"Computed y1 ({y1:.2f} ft) is invalid or outside range 0 to 31000 ft.")
-        st.error(f"Computed depth y1 ({y1:.2f} ft) is invalid or exceeds 31000 ft. Please adjust inputs.")
         return None, None, None, None, None, None, None
 
     y2 = y1 + D
@@ -166,12 +161,10 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
                 p2 = result.root
         except ValueError:
             logger.error(f"No valid p2 found for y2 = {y2:.2f} ft within 0 to 4000 psi.")
-            st.error(f"No valid pressure p2 found for depth y2 = {y2:.2f} ft. Please adjust inputs.")
             return None, None, None, None, None, None, None
 
     if p2 is None or p2 < 0 or p2 > 4000:
         logger.error(f"Computed p2 ({p2:.2f} psi) is invalid or outside range 0 to 4000 psi.")
-        st.error(f"Computed pressure p2 ({p2:.2f} psi) is invalid or exceeds 4000 psi. Please adjust inputs.")
         return None, None, None, None, None, None, None
 
     logger.info(f"Calculated: y1={y1:.2f} ft, y2={y2:.2f} ft, p2={p2:.2f} psi, interpolation_status={interpolation_status}")
@@ -222,13 +215,11 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
         # Validate provided c and n
         if c <= 0 or not np.isfinite(c) or n <= 0 or n > 2.0 or not np.isfinite(n):
             logger.error(f"Invalid Fetkovich parameters: C={c}, n={n}.")
-            st.error(f"Invalid Fetkovich parameters: C={c}, n={n}. C must be positive, n must be in (0, 2].")
             raise ValueError(f"Invalid Fetkovich parameters: C={c}, n={n}")
     else:
         # Calculate c and n from points
         if len(points) < 2:
             logger.error("At least two valid points required for Fetkovich parameters.")
-            st.error("At least two valid points (Q0 > 0, Pwf > 0) required for Fetkovich method. Please provide valid inputs.")
             raise ValueError("Insufficient valid points for Fetkovich calculation.")
         
         if len(points) == 2:
@@ -236,13 +227,11 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
             q02, pwf2 = points[1]
             if pwf1 == pwf2 or q01 == q02 or pwf1 <= 0 or pwf2 <= 0 or q01 <= 0 or q02 <= 0:
                 logger.error("Invalid Fetkovich inputs: Pwf1, Pwf2, Q01, Q02 must be positive and distinct.")
-                st.error("Invalid Fetkovich inputs: Pwf1, Pwf2, Q01, Q02 must be positive and distinct.")
                 raise ValueError("Invalid Fetkovich input parameters.")
             delta_p1 = pr**2 - pwf1**2
             delta_p2 = pr**2 - pwf2**2
             if delta_p1 <= 0 or delta_p2 <= 0 or delta_p1 == delta_p2:
                 logger.error("Invalid delta pressures for Fetkovich calculation.")
-                st.error("Invalid pressures: Pr^2 - Pwf^2 must be positive and distinct.")
                 raise ValueError("Invalid delta pressures.")
             n = np.log10(q02 / q01) / np.log10(delta_p2 / delta_p1)
             c = q01 / (delta_p1 ** n)
@@ -257,12 +246,10 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
                 c, n = popt
             except Exception as e:
                 logger.error(f"Curve fit failed for Fetkovich: {str(e)}")
-                st.error(f"Failed to compute Fetkovich parameters: {str(e)}. Please check input points.")
                 raise ValueError("Curve fit failed.")
 
         if c <= 0 or not np.isfinite(c) or n <= 0 or n > 2.0 or not np.isfinite(n):
             logger.error(f"Invalid Fetkovich parameters: C={c}, n={n}.")
-            st.error(f"Invalid Fetkovich parameters: C={c}, n={n}. C must be positive, n must be in (0, 2].")
             raise ValueError(f"Invalid Fetkovich parameters: C={c}, n={n}")
 
     # Generate IPR points
@@ -274,7 +261,6 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
             ipr_points.append((q0, pwf))
     if len(ipr_points) < 2:
         logger.error("Insufficient valid IPR points for Fetkovich.")
-        st.error("Insufficient valid IPR points generated. Please adjust inputs.")
         raise ValueError("Insufficient valid IPR points.")
 
     logger.info(f"Fetkovich parameters: C={c:.4e}, n={n:.4f}, points={len(ipr_points)}")
@@ -294,7 +280,6 @@ def calculate_ipr_vogel(pr, q_max):
             ipr_points.append((q0, pwf))
     if len(ipr_points) < 2:
         logger.error("Insufficient valid IPR points for Vogel.")
-        st.error("Insufficient valid IPR points generated for Vogel method. Please adjust q_max.")
         raise ValueError("Insufficient valid IPR points.")
     logger.info(f"Vogel parameters: q_max={q_max:.4f}, points={len(ipr_points)}")
     return q_max, ipr_points
@@ -316,7 +301,6 @@ def calculate_ipr_composite(pr, j_star, p_b):
             ipr_points.append((q0, pwf))
     if len(ipr_points) < 2:
         logger.error("Insufficient valid IPR points for Composite.")
-        st.error("Insufficient valid IPR points generated for Composite method. Please adjust j_star or p_b.")
         raise ValueError("Insufficient valid IPR points.")
     logger.info(f"Composite parameters: j_star={j_star:.4f}, p_b={p_b:.4f}, points={len(ipr_points)}")
     return j_star, p_b, ipr_points
@@ -329,7 +313,6 @@ def find_intersection(tpr_points, ipr_points, pr):
     # Validate input points
     if not tpr_points or not ipr_points:
         logger.error("Empty TPR or IPR points provided.")
-        st.error("No valid TPR or IPR points provided for intersection calculation.")
         return None, None
 
     # Filter valid points and ensure finite values
@@ -338,7 +321,6 @@ def find_intersection(tpr_points, ipr_points, pr):
     
     if len(tpr_points) < 2 or len(ipr_points) < 2:
         logger.error(f"Insufficient points: TPR={len(tpr_points)}, IPR={len(ipr_points)}")
-        st.error("Insufficient valid points for TPR or IPR curves. At least two points required per curve.")
         return None, None
 
     try:
@@ -372,7 +354,6 @@ def find_intersection(tpr_points, ipr_points, pr):
         
         if q_min >= q_max:
             logger.warning(f"Invalid Q0 range: q_min={q_min:.2f}, q_max={q_max:.2f}")
-            st.warning(f"No valid intersection range: Q0 from {q_min:.2f} to {q_max:.2f}. Check TPR and IPR points.")
             return None, None
 
         # Check for sign change
@@ -380,12 +361,10 @@ def find_intersection(tpr_points, ipr_points, pr):
         f_max = diff_func(q_max)
         if not (np.isfinite(f_min) and np.isfinite(f_max)):
             logger.warning(f"Non-finite function values: f_min={f_min}, f_max={f_max}")
-            st.warning("Intersection calculation failed due to invalid values in TPR or IPR curves.")
             return None, None
         
         if f_min * f_max > 0:
             logger.warning(f"No sign change detected: f_min={f_min:.2f}, f_max={f_max:.2f}")
-            st.warning("No intersection found between TPR and IPR curves.")
             return None, None
 
         # Find intersection
@@ -399,17 +378,13 @@ def find_intersection(tpr_points, ipr_points, pr):
                     0 <= intersection_p <= max(pr, 4000) and
                     abs(ipr_interp(intersection_q0) - tpr_interp(intersection_q0)) < 1.0):
                     logger.info(f"Intersection found: Q0={intersection_q0:.2f} stb/day, P={intersection_p:.2f} psi")
-                    st.write(f"Intersection found: Q0={intersection_q0:.2f} stb/day, P={intersection_p:.2f} psi")
                     return intersection_q0, intersection_p
                 else:
                     logger.warning(f"Intersection rejected: Q0={intersection_q0:.2f}, P={intersection_p:.2f}")
-                    st.warning(f"Invalid intersection: Q0={intersection_q0:.2f}, P={intersection_p:.2f}.")
                     return None, None
         except Exception as e:
             logger.error(f"Intersection search failed: {str(e)}")
-            st.warning(f"Failed to find intersection: {str(e)}.")
             return None, None
     except Exception as e:
         logger.error(f"Intersection calculation failed: {str(e)}")
-        st.error(f"Calculation failed: {str(e)}")
         return None, None
