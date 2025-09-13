@@ -361,7 +361,4 @@ def find_intersection(tpr_points, ipr_points, pr):
         if not (np.isfinite(f_min) and np.isfinite(f_max)):
             logger.warning(f"Non-finite function values: f_min={f_min}, f_max={f_max}")
             return None, None
-        
-       ස
 
-System: * Today's date and time is 02:14 PM +03 on Saturday, September 13, 2025.
