@@ -5,7 +5,8 @@ from calculations import (calculate_results, calculate_tpr_points, calculate_ipr
 from plotting import (plot_results, plot_curves, plot_fetkovich_log_log,
                      plot_fetkovich_flow_after_flow, plot_glr_graphs)
 from validators import (validate_conduit_size, validate_production_rate, validate_glr,
-                       validate_depth_and_pressure, validate_pressure, get_valid_options, get_valid_glr_range)
+                       validate_depth_and_pressure, validate_pressure, get_valid_options,
+                       get_valid_glr_range, validate_fetkovich_parameters, validate_fetkovich_points)
 from utils import export_results_to_excel, export_plot_to_png, setup_logging
 from config import COLORS
 
@@ -471,10 +472,14 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 errors.append("Invalid reservoir pressure.")
             if not validate_depth_and_pressure(0, D):
                 errors.append("Invalid well length.")
-            if ipr_method == "Fetkovich" and fetkovich_input_method == "Calculate C and n from points":
-                valid_points = sum(1 for q, p in [(q01, pwf1), (q02, pwf2), (q03, pwf3), (q04, pwf4)] if q is not None and p is not None and q > 0 and p > 0)
-                if valid_points < 2:
-                    errors.append("At least two valid points (Q0 > 0, Pwf > 0) required for Fetkovich calculation.")
+            if ipr_method == "Fetkovich":
+                if fetkovich_input_method == "Enter C and n directly":
+                    if not validate_fetkovich_parameters(c, n):
+                        errors.append("Invalid Fetkovich parameters.")
+                else:
+                    points = [(q01, pwf1), (q02, pwf2), (q03, pwf3), (q04, pwf4)]
+                    if not validate_fetkovich_points(points, pr):
+                        errors.append("Invalid Fetkovich test points.")
             
             if errors:
                 for error in errors:
@@ -509,7 +514,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         st.write(f"**Natural Flow Rate**: {intersection_q0:.2f} stb/day")
                         st.write(f"**Flowing Bottomhole Pressure**: {intersection_p:.2f} psi")
                     else:
-                        st.warning("No valid natural flow point found.")
+                        st.warning("Well cannot flow naturally; artificial lift required. Showing TPR and IPR curves for visualization.")
                     
                     st.session_state.natural_flow_results = {
                         'tpr_points': tpr_points,
