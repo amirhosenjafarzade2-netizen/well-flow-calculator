@@ -512,6 +512,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 logger.error(f"Natural Flow Finder errors: {errors}")
             else:
                 try:
+                    # Calculate TPR and IPR points
                     tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, reference_data)
                     if ipr_method == "Fetkovich":
                         c, n, ipr_points, fetkovich_points = calculate_ipr_fetkovich(
@@ -525,14 +526,17 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         j_star, p_b, ipr_points = calculate_ipr_composite(pr, j_star, p_b)
                         ipr_params = f"J*={j_star:.4f}, P_b={p_b:.2f}"
                     
-                    # Plot TPR/IPR curves first
+                    # Calculate intersection
+                    intersection_q0, intersection_p = find_intersection(tpr_points, ipr_points, pr)
+                    
+                    # Plot TPR/IPR curves with intersection point
                     try:
                         fig = plot_curves(
-                            tpr_points, ipr_points, None, None, conduit_size, glr, D, pwh, pr,
-                            ipr_params, mode='color'
+                            tpr_points, ipr_points, intersection_q0, intersection_p,
+                            conduit_size, glr, D, pwh, pr, ipr_params, mode='color'
                         )
                         if fig is not None:
-                            st.subheader("TPR and IPR Curves")
+                            st.subheader("TPR and IPR Curves with Natural Flow Point")
                             st.pyplot(fig)
                             
                             if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
@@ -549,9 +553,9 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                             else:
                                 st.warning("TPR/IPR plot is empty - cannot export.")
                         else:
-                            st.warning("Failed to generate TPR/IPR plot, but continuing with intersection calculation.")
+                            st.warning("Failed to generate TPR/IPR plot.")
                     except Exception as e:
-                        st.warning(f"Failed to plot TPR/IPR curves: {str(e)}. Continuing with intersection calculation.")
+                        st.warning(f"Failed to plot TPR/IPR curves: {str(e)}")
                         logger.error(f"TPR/IPR plotting failed: {str(e)}")
                     
                     # Plot Fetkovich log-log graph if applicable
@@ -581,8 +585,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                             st.warning(f"Failed to plot Fetkovich log-log graph: {str(e)}")
                             logger.error(f"Log-log plotting failed: {str(e)}")
                     
-                    # Calculate intersection
-                    intersection_q0, intersection_p = find_intersection(tpr_points, ipr_points, pr)
+                    # Display intersection results
                     st.subheader("Point of Natural Flow Results")
                     if intersection_q0 is not None and intersection_p is not None:
                         st.write(f"**Production Rate (Q0)**: {intersection_q0:.2f} stb/day")
@@ -594,35 +597,6 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                             'ipr_points': ipr_points,
                             'ipr_params': ipr_params
                         }
-                        
-                        # Replot with intersection point
-                        try:
-                            fig = plot_curves(
-                                tpr_points, ipr_points, intersection_q0, intersection_p,
-                                conduit_size, glr, D, pwh, pr, ipr_params, mode='color'
-                            )
-                            if fig is not None:
-                                st.subheader("TPR and IPR Curves with Natural Flow Point")
-                                st.pyplot(fig)
-                                
-                                if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
-                                    try:
-                                        st.download_button(
-                                            label="Download TPR/IPR Plot with Intersection as PNG",
-                                            data=export_plot_to_png(fig),
-                                            file_name="tpr_ipr_intersection_plot.png",
-                                            mime="image/png"
-                                        )
-                                    except Exception as e:
-                                        st.error(f"Failed to export TPR/IPR plot with intersection as PNG: {str(e)}")
-                                        logger.error(f"TPR/IPR intersection PNG export failed: {str(e)}")
-                                else:
-                                    st.warning("TPR/IPR plot with intersection is empty - cannot export.")
-                            else:
-                                st.warning("Failed to generate TPR/IPR plot with intersection point.")
-                        except Exception as e:
-                            st.warning(f"Failed to plot TPR/IPR curves with intersection: {str(e)}")
-                            logger.error(f"TPR/IPR intersection plotting failed: {str(e)}")
                     else:
                         st.warning("No valid intersection point found. TPR and IPR curves are plotted above.")
                         logger.warning("No valid intersection point found")
@@ -632,7 +606,9 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         if 'natural_flow_results' in st.session_state:
                             excel_data = export_results_to_excel(
                                 st.session_state.natural_flow_results,
-                                conduit_size, glr, D, pwh, pr, ipr_method, ipr_params
+                                conduit_size,
+                                production_rate,
+                                glr
                             )
                             st.download_button(
                                 label="Download Results as Excel",
@@ -737,7 +713,6 @@ def main():
     apply_theme()
     
     # Placeholder for reference data and interpolation ranges
-    # In a real application, these would be loaded from a data source
     reference_data = [...]  # Assume reference data is loaded
     interpolation_ranges = {...}  # Assume interpolation ranges are loaded
     production_rates = [50, 100, 200, 300, 400, 500, 600]
