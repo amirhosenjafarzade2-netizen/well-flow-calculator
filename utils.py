@@ -38,7 +38,7 @@ def setup_logging():
 def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersection_p):
     """
     Export TPR, IPR, and intersection results to an Excel file.
-    Returns bytes for Streamlit download. Handles mismatched lengths by padding with None.
+    Returns bytes for Streamlit download. Handles mismatched lengths and empty inputs.
     """
     logger = setup_logging()
     logger.info(f"Exporting to Excel: tpr_points={tpr_points}, ipr_points={ipr_points}, "
@@ -131,10 +131,18 @@ def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersectio
         # Log DataFrame info
         logger.info(f"DataFrame created with {len(df)} rows and columns: {df.columns.tolist()}")
         
-        # If DataFrame is empty, create a minimal file with a note
-        if df.empty:
-            logger.warning("DataFrame is empty, creating minimal Excel file")
-            df = pd.DataFrame({"Note": ["No valid data available"]})
+        # If no valid TPR or IPR points, add a note
+        if not valid_tpr_q0 and not valid_ipr_q0:
+            logger.warning("No valid TPR or IPR points, adding note to Excel")
+            df = pd.DataFrame({
+                "Note": ["No valid TPR or IPR points. Check input data or calculations."]
+            })
+        elif not valid_tpr_q0:
+            logger.warning("No valid TPR points, adding note to Excel")
+            df["Note"] = ["No valid TPR points"] + [None] * (len(df) - 1)
+        elif not valid_ipr_q0:
+            logger.warning("No valid IPR points, adding note to Excel")
+            df["Note"] = ["No valid IPR points"] + [None] * (len(df) - 1)
         
         # Export to Excel
         output = io.BytesIO()
