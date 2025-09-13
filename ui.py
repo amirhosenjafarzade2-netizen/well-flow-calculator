@@ -7,7 +7,7 @@ from plotting import (plot_results, plot_curves, plot_fetkovich_log_log,
 from validators import (validate_conduit_size, validate_production_rate, validate_glr,
                        validate_depth_and_pressure, validate_pressure, get_valid_options,
                        get_valid_glr_range, validate_fetkovich_parameters, validate_fetkovich_points)
-from utils import export_results_to_excel, export_plot_to_png, setup_logging
+from utils import export_plot_to_png, setup_logging
 from config import COLORS
 
 logger = setup_logging()
@@ -187,29 +187,6 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                         except Exception as e:
                             st.error(f"Failed to plot results: {str(e)}")
                             logger.error(f"p2 Finder plotting failed: {str(e)}")
-                        
-                        # Export results to Excel
-                        try:
-                            excel_data, filename = export_results_to_excel(
-                                mode="p2_finder",
-                                results=st.session_state.p2_finder_results,
-                                inputs={
-                                    'conduit_size': conduit_size,
-                                    'production_rate': production_rate,
-                                    'glr': glr,
-                                    'p1': p1,
-                                    'D': D
-                                }
-                            )
-                            st.download_button(
-                                label="Download Results as Excel",
-                                data=excel_data,
-                                file_name=filename,
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
-                        except Exception as e:
-                            st.error(f"Failed to export results to Excel: {str(e)}")
-                            logger.error(f"p2 Finder Excel export failed: {str(e)}")
                 except Exception as e:
                     st.error(f"Calculation failed: {str(e)}")
                     logger.error(f"p2 Finder calculation failed: {str(e)}")
@@ -623,44 +600,6 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     else:
                         st.warning("No valid intersection point found. TPR and IPR curves are plotted above.")
                         logger.warning("No valid intersection point found")
-                    
-                    # Export results to Excel
-                    try:
-                        excel_data, filename = export_results_to_excel(
-                            mode="natural_flow",
-                            results={
-                                'tpr_points': tpr_points,
-                                'ipr_points': ipr_points,
-                                'intersection_q0': intersection_q0,
-                                'intersection_p': intersection_p,
-                                'ipr_params': ipr_params
-                            },
-                            inputs={
-                                'conduit_size': conduit_size,
-                                'production_rate': production_rate,
-                                'glr': glr,
-                                'pwh': pwh,
-                                'D': D,
-                                'pr': pr,
-                                'ipr_method': ipr_method,
-                                'fetkovich_input_method': fetkovich_input_method if ipr_method == "Fetkovich" else None,
-                                'c': c if ipr_method == "Fetkovich" and fetkovich_input_method == "Direct" else None,
-                                'n': n if ipr_method == "Fetkovich" and fetkovich_input_method == "Direct" else None,
-                                'q01': q01 if ipr_method == "Fetkovich" and fetkovich_input_method == "Points" else None,
-                                'pwf1': pwf1 if ipr_method == "Fetkovich" and fetkovich_input_method == "Points" else None,
-                                'q02': q02 if ipr_method == "Fetkovich" and fetkovich_input_method == "Points" else None,
-                                'pwf2': pwf2 if ipr_method == "Fetkovich" and fetkovich_input_method == "Points" else None
-                            }
-                        )
-                        st.download_button(
-                            label="Download Results as Excel",
-                            data=excel_data,
-                            file_name=filename,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                    except Exception as e:
-                        st.error(f"Failed to export results to Excel: {str(e)}")
-                        logger.error(f"Excel export failed: {str(e)}")
                 
                 except Exception as e:
                     st.error(f"Calculation failed: {str(e)}")
@@ -744,26 +683,6 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                     else:
                         st.error("Failed to generate GLR plot.")
                         logger.error("GLR plot returned None")
-                    
-                    # Export results to Excel
-                    try:
-                        excel_data, filename = export_results_to_excel(
-                            mode="glr_curves",
-                            results={'glr_data': glr_data},
-                            inputs={
-                                'conduit_size': conduit_size,
-                                'production_rate': production_rate
-                            }
-                        )
-                        st.download_button(
-                            label="Download GLR Curves as Excel",
-                            data=excel_data,
-                            file_name=filename,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                    except Exception as e:
-                        st.error(f"Failed to export GLR curves to Excel: {str(e)}")
-                        logger.error(f"GLR curves Excel export failed: {str(e)}")
                 except Exception as e:
                     st.error(f"Failed to plot GLR curves: {str(e)}")
                     logger.error(f"GLR plotting failed: {str(e)}")
