@@ -252,8 +252,8 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
             logger.error(f"Invalid Fetkovich parameters: C={c}, n={n}.")
             raise ValueError(f"Invalid Fetkovich parameters: C={c}, n={n}")
 
-    # Generate IPR points
-    pwf_values = np.linspace(0, pr, 15)
+    # Generate IPR points with consistent range
+    pwf_values = np.linspace(0, pr, 50)  # Increased points for smoother curve
     ipr_points = []
     for pwf in pwf_values:
         q0 = c * (pr**2 - pwf**2)**n
@@ -272,7 +272,7 @@ def calculate_ipr_vogel(pr, q_max):
     Calculate IPR points using Vogel method.
     Returns (q_max, ipr_points).
     """
-    pwf_values = np.linspace(0, pr, 15)
+    pwf_values = np.linspace(0, pr, 50)  # Consistent with Fetkovich
     ipr_points = []
     for pwf in pwf_values:
         q0 = q_max * (1 - 0.2 * (pwf / pr) - 0.8 * (pwf / pr)**2)
@@ -290,7 +290,7 @@ def calculate_ipr_composite(pr, j_star, p_b):
     Calculate IPR points using Composite method.
     Returns (j_star, p_b, ipr_points).
     """
-    pwf_values = np.linspace(0, pr, 15)
+    pwf_values = np.linspace(0, pr, 50)  # Consistent with Fetkovich
     ipr_points = []
     for pwf in pwf_values:
         if pwf > p_b:
@@ -305,6 +305,7 @@ def calculate_ipr_composite(pr, j_star, p_b):
     logger.info(f"Composite parameters: j_star={j_star:.4f}, p_b={p_b:.4f}, points={len(ipr_points)}")
     return j_star, p_b, ipr_points
 
+@st.cache_data
 def find_intersection(tpr_points, ipr_points, pr):
     """
     Find intersection between TPR and IPR curves using interpolation.
@@ -336,6 +337,11 @@ def find_intersection(tpr_points, ipr_points, pr):
         ipr_q0 = np.array(ipr_q0)[ipr_indices]
         ipr_pwf = np.array(ipr_pwf)[ipr_indices]
 
+        # Log array lengths for debugging
+        logger.info(f"TPR points: {len(tpr_points)}, IPR points: {len(ipr_points)}")
+        logger.debug(f"TPR q0: {tpr_q0.tolist()}, TPR p2: {tpr_p2.tolist()}")
+        logger.debug(f"IPR q0: {ipr_q0.tolist()}, IPR pwf: {ipr_pwf.tolist()}")
+
         # Create interpolation functions
         tpr_interp = interp1d(tpr_q0, tpr_p2, kind='linear', fill_value='extrapolate')
         ipr_interp = interp1d(ipr_q0, ipr_pwf, kind='linear', fill_value='extrapolate')
@@ -353,7 +359,7 @@ def find_intersection(tpr_points, ipr_points, pr):
         q_max = min(max(tpr_q0), max(ipr_q0))
         
         if q_min >= q_max:
-            logger.warning(f"Invalid Q0 range: q_min={q_min:.2f}, q_max={q_max:.2f}")
+            logger.warning(f"No valid intersection range: Q0 from {q_min:.2f} to {q_max:.2f}. Check TPR and IPR points.")
             return None, None
 
         # Check for sign change
@@ -383,7 +389,7 @@ def find_intersection(tpr_points, ipr_points, pr):
                     logger.warning(f"Intersection rejected: Q0={intersection_q0:.2f}, P={intersection_p:.2f}")
                     return None, None
         except Exception as e:
-            logger.error(f"Intersection search failed: {str(e)}")
+            logger.warning(f"Intersection search failed: {str(e)}. Plotting curves without intersection.")
             return None, None
     except Exception as e:
         logger.error(f"Intersection calculation failed: {str(e)}")
