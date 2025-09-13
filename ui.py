@@ -721,8 +721,8 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                 logger.error(f"GLR Graph Drawer errors: {errors}")
             else:
                 try:
-                    fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
                     # Placeholder: Assume plot_glr_graphs returns (fig, glr_data)
+                    fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
                     glr_data = [...]  # Replace with actual glr_data from plot_glr_graphs
                     if fig is not None:
                         st.subheader("GLR Pressure vs Depth Curves")
