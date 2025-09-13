@@ -203,7 +203,9 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
     """
     points = []
     for q, pwf in [(q01, pwf1), (q02, pwf2), (q03, pwf3), (q04, pwf4)]:
-        if q is not None and pwf is not None and np.isfinite(q) and np.isfinite(pwf) and q > 0 and pwf >= 0 and pwf <= pr:
+        if (q is not None and pwf is not None and 
+            np.isfinite(q) and np.isfinite(pwf) and 
+            q > 0 and 0 <= pwf <= pr):
             points.append((q, pwf))
     
     if c is not None and n is not None:
@@ -230,8 +232,8 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
             c = q01 / (delta_p1 ** n)
         else:
             q_points_list, pwf_points_list = zip(*points)
-            q_points_array = np.array(q_points_list)
-            pwf_points_array = np.array(pwf_points_list)
+            q_points_array = np.array(q_points_list, dtype=float)
+            pwf_points_array = np.array(pwf_points_list, dtype=float)
             def fetkovich_model(pwf, c, n):
                 return c * (pr**2 - pwf**2)**n
             try:
@@ -251,11 +253,13 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
         q0 = c * (pr**2 - pwf**2)**n
         if np.isfinite(q0) and 0 <= q0 <= 1000:
             ipr_points.append((q0, pwf))
+        else:
+            logger.debug(f"Excluded invalid IPR point: Q0={q0:.2f}, Pwf={pwf:.2f}")
     if len(ipr_points) < 2:
         logger.error("Insufficient valid IPR points for Fetkovich.")
         raise ValueError("Insufficient valid IPR points.")
 
-    logger.info(f"Fetkovich parameters: C={c:.4e}, n={n:.4f}, points={len(ipr_points)}")
+    logger.info(f"Fetkovich parameters: C={c:.4e}, n={n:.4f}, points={len(ipr_points)}, input_points={len(points)}")
     return c, n, ipr_points, points
 
 @st.cache_data
@@ -318,13 +322,18 @@ def find_intersection(tpr_points, ipr_points, pr):
         tpr_q0, tpr_p2 = zip(*tpr_points)
         ipr_q0, ipr_pwf = zip(*ipr_points)
         
+        tpr_q0 = np.array(tpr_q0, dtype=float)
+        tpr_p2 = np.array(tpr_p2, dtype=float)
+        ipr_q0 = np.array(ipr_q0, dtype=float)
+        ipr_pwf = np.array(ipr_pwf, dtype=float)
+        
         tpr_indices = np.argsort(tpr_q0)
-        tpr_q0 = np.array(tpr_q0)[tpr_indices]
-        tpr_p2 = np.array(tpr_p2)[tpr_indices]
+        tpr_q0 = tpr_q0[tpr_indices]
+        tpr_p2 = tpr_p2[tpr_indices]
         
         ipr_indices = np.argsort(ipr_q0)
-        ipr_q0 = np.array(ipr_q0)[ipr_indices]
-        ipr_pwf = np.array(ipr_pwf)[ipr_indices]
+        ipr_q0 = ipr_q0[ipr_indices]
+        ipr_pwf = ipr_pwf[ipr_indices]
 
         logger.info(f"TPR points: {len(tpr_points)}, IPR points: {len(ipr_points)}")
         logger.debug(f"TPR q0: {tpr_q0.tolist()}, TPR p2: {tpr_p2.tolist()}")
@@ -353,26 +362,6 @@ def find_intersection(tpr_points, ipr_points, pr):
             logger.warning(f"Non-finite function values: f_min={f_min}, f_max={f_max}")
             return None, None
         
-        if f_min * f_max > 0:
-            logger.warning(f"No sign change detected: f_min={f_min:.2f}, f_max={f_max:.2f}")
-            return None, None
+       ස
 
-        try:
-            result = root_scalar(diff_func, bracket=[q_min, q_max], method='brentq')
-            intersection_q0 = result.root if result.converged else None
-            if intersection_q0 is not None:
-                intersection_p = ipr_interp(intersection_q0)
-                if (0 <= intersection_q0 <= 750 and
-                    0 <= intersection_p <= max(pr, 4000) and
-                    abs(ipr_interp(intersection_q0) - tpr_interp(intersection_q0)) < 1.0):
-                    logger.info(f"Intersection found: Q0={intersection_q0:.2f} stb/day, P={intersection_p:.2f} psi")
-                    return intersection_q0, intersection_p
-                else:
-                    logger.warning(f"Intersection rejected: Q0={intersection_q0:.2f}, P={intersection_p:.2f}")
-                    return None, None
-        except Exception as e:
-            logger.warning(f"Intersection search failed: {str(e)}. Plotting curves without intersection.")
-            return None, None
-    except Exception as e:
-        logger.error(f"Intersection calculation failed: {str(e)}")
-        return None, None
+System: * Today's date and time is 02:14 PM +03 on Saturday, September 13, 2025.
