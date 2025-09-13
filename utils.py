@@ -38,19 +38,50 @@ def setup_logging():
 def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersection_p):
     """
     Export TPR, IPR, and intersection results to an Excel file.
-    Returns bytes for Streamlit download.
+    Returns bytes for Streamlit download. Returns empty bytes if inputs are invalid.
     """
-    df = pd.DataFrame({
-        'TPR_Q0': [q for q, _ in tpr_points] if tpr_points else [],
-        'TPR_P2': [p for _, p in tpr_points] if tpr_points else [],
-        'IPR_Q0': [q for q, _ in ipr_points] if ipr_points else [],
-        'IPR_Pwf': [p for _, p in ipr_points] if ipr_points else [],
-        'Intersection_Q0': [intersection_q0] if intersection_q0 is not None else [],
-        'Intersection_P': [intersection_p] if intersection_p is not None else []
-    })
-    output = io.BytesIO()
-    df.to_excel(output, index=False, engine='openpyxl')
-    return output.getvalue()
+    logger = setup_logging()
+    try:
+        # Validate input types
+        if not isinstance(tpr_points, (list, tuple)):
+            logger.error(f"Invalid tpr_points type: {type(tpr_points)}")
+            return b''
+        if not isinstance(ipr_points, (list, tuple)):
+            logger.error(f"Invalid ipr_points type: {type(ipr_points)}")
+            return b''
+
+        # Validate tuple structure
+        for points, name in [(tpr_points, 'TPR'), (ipr_points, 'IPR')]:
+            for i, point in enumerate(points):
+                if not isinstance(point, (list, tuple)):
+                    logger.error(f"Invalid {name} point at index {i}: {point} (not a tuple/list)")
+                    return b''
+                if len(point) != 2:
+                    logger.error(f"Invalid {name} point at index {i}: {point} (expected 2 elements, got {len(point)})")
+                    return b''
+                # Ensure elements are numeric
+                for val in point:
+                    if not isinstance(val, (int, float, np.number)) or not np.isfinite(val):
+                        logger.error(f"Invalid {name} point at index {i}: {point} (non-numeric or non-finite value)")
+                        return b''
+
+        # Create DataFrame
+        df = pd.DataFrame({
+            'TPR_Q0': [q for q, _ in tpr_points] if tpr_points else [],
+            'TPR_P2': [p for _, p in tpr_points] if tpr_points else [],
+            'IPR_Q0': [q for q, _ in ipr_points] if ipr_points else [],
+            'IPR_Pwf': [p for _, p in ipr_points] if ipr_points else [],
+            'Intersection_Q0': [intersection_q0] if intersection_q0 is not None and np.isfinite(intersection_q0) else [],
+            'Intersection_P': [intersection_p] if intersection_p is not None and np.isfinite(intersection_p) else []
+        })
+        output = io.BytesIO()
+        df.to_excel(output, index=False, engine='openpyxl')
+        output.seek(0)
+        logger.info(f"Exported Excel: {len(output.getvalue())} bytes")
+        return output.getvalue()
+    except Exception as e:
+        logger.error(f"Failed to export to Excel: {str(e)}")
+        return b''
 
 def export_plot_to_png(fig):
     """
@@ -60,13 +91,12 @@ def export_plot_to_png(fig):
     logger = setup_logging()
     if fig is None:
         logger.warning("Cannot export: Figure is None")
-        return b''  # Empty bytes instead of error
+        return b''
     if len(fig.axes) == 0:
         logger.warning("Cannot export: No axes in figure")
         return b''
     
     ax = fig.axes[0]
-    # Broader check for content (lines, scatters, text, etc.)
     if (len(ax.lines) + len(ax.patches) + len(ax.collections) + len(ax.texts) == 0):
         logger.warning("Cannot export: Empty axes (no visible content)")
         return b''
@@ -80,7 +110,7 @@ def export_plot_to_png(fig):
         return png_data
     except Exception as e:
         logger.error(f"Savefig failed: {str(e)}")
-        return b''  # Return empty instead of raising
+        return b''
 
 def export_plot_to_pdf(fig):
     """
