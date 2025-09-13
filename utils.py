@@ -38,7 +38,7 @@ def setup_logging():
 def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersection_p):
     """
     Export TPR, IPR, and intersection results to an Excel file.
-    Returns bytes for Streamlit download. Handles mismatched lengths and empty inputs.
+    Returns bytes for Streamlit download. Handles empty/invalid inputs with specific notes.
     """
     logger = setup_logging()
     logger.info(f"Exporting to Excel: tpr_points={tpr_points}, ipr_points={ipr_points}, "
@@ -50,9 +50,13 @@ def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersectio
         valid_tpr_p2 = []
         valid_ipr_q0 = []
         valid_ipr_pwf = []
-        
-        # Validate and filter TPR points
-        if isinstance(tpr_points, (list, tuple)) and tpr_points:
+        notes = []
+
+        # Validate TPR points
+        if not isinstance(tpr_points, (list, tuple)) or not tpr_points:
+            logger.warning(f"Invalid or empty tpr_points: type={type(tpr_points)}, value={tpr_points}")
+            notes.append("Invalid or empty TPR points. Check input data or calculations.")
+        else:
             for i, point in enumerate(tpr_points):
                 if not isinstance(point, (list, tuple)):
                     logger.warning(f"Skipping invalid TPR point at index {i}: {point} (not a tuple/list)")
@@ -62,16 +66,20 @@ def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersectio
                     continue
                 q, p = point
                 if not (isinstance(q, (int, float, np.number)) and isinstance(p, (int, float, np.number)) and
-                        np.isfinite(q) and np.isfinite(p)):
-                    logger.warning(f"Skipping invalid TPR point at index {i}: {point} (non-numeric or non-finite)")
+                        np.isfinite(q) and np.isfinite(p) and q >= 0 and p >= 0):
+                    logger.warning(f"Skipping invalid TPR point at index {i}: {point} (non-numeric, non-finite, or negative)")
                     continue
                 valid_tpr_q0.append(q)
                 valid_tpr_p2.append(p)
+            if not valid_tpr_q0:
+                logger.warning("No valid TPR points after validation")
+                notes.append("No valid TPR points after validation. Check input data or calculations.")
+
+        # Validate IPR points
+        if not isinstance(ipr_points, (list, tuple)) or not ipr_points:
+            logger.warning(f"Invalid or empty ipr_points: type={type(ipr_points)}, value={ipr_points}")
+            notes.append("Invalid or empty IPR points. Check input data or calculations.")
         else:
-            logger.warning(f"Invalid or empty tpr_points: {type(tpr_points)}")
-        
-        # Validate and filter IPR points
-        if isinstance(ipr_points, (list, tuple)) and ipr_points:
             for i, point in enumerate(ipr_points):
                 if not isinstance(point, (list, tuple)):
                     logger.warning(f"Skipping invalid IPR point at index {i}: {point} (not a tuple/list)")
@@ -81,35 +89,42 @@ def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersectio
                     continue
                 q, p = point
                 if not (isinstance(q, (int, float, np.number)) and isinstance(p, (int, float, np.number)) and
-                        np.isfinite(q) and np.isfinite(p)):
-                    logger.warning(f"Skipping invalid IPR point at index {i}: {point} (non-numeric or non-finite)")
+                        np.isfinite(q) and np.isfinite(p) and q >= 0 and p >= 0):
+                    logger.warning(f"Skipping invalid IPR point at index {i}: {point} (non-numeric, non-finite, or negative)")
                     continue
                 valid_ipr_q0.append(q)
                 valid_ipr_pwf.append(p)
-        else:
-            logger.warning(f"Invalid or empty ipr_points: {type(ipr_points)}")
-        
+            if not valid_ipr_q0:
+                logger.warning("No valid IPR points after validation")
+                notes.append("No valid IPR points after validation. Check input data or calculations.")
+
         # Validate intersection points
-        valid_intersection_q0 = [intersection_q0] if (intersection_q0 is not None and
-                                                     np.isfinite(intersection_q0)) else []
-        valid_intersection_p = [intersection_p] if (intersection_p is not None and
-                                                   np.isfinite(intersection_p)) else []
-        
+        valid_intersection_q0 = []
+        valid_intersection_p = []
+        if (intersection_q0 is not None and intersection_p is not None and
+            np.isfinite(intersection_q0) and np.isfinite(intersection_p) and
+            intersection_q0 >= 0 and intersection_p >= 0):
+            valid_intersection_q0 = [intersection_q0]
+            valid_intersection_p = [intersection_p]
+        else:
+            logger.warning(f"Invalid intersection points: q0={intersection_q0}, p={intersection_p}")
+            notes.append(f"Invalid intersection points: q0={intersection_q0}, p={intersection_p}")
+
         # Log lengths of all lists
         logger.info(f"List lengths: TPR_Q0={len(valid_tpr_q0)}, TPR_P2={len(valid_tpr_p2)}, "
                     f"IPR_Q0={len(valid_ipr_q0)}, IPR_Pwf={len(valid_ipr_pwf)}, "
                     f"Intersection_Q0={len(valid_intersection_q0)}, Intersection_P={len(valid_intersection_p)}")
-        
+
         # Determine maximum length for DataFrame
         max_length = max(
             len(valid_tpr_q0),
             len(valid_tpr_p2),
             len(valid_ipr_q0),
             len(valid_ipr_pwf),
-            len(valid_intersection_q0) or 1,  # Ensure at least 1 to avoid empty DataFrame
+            len(valid_intersection_q0) or 1,
             len(valid_intersection_p) or 1
         )
-        
+
         # Pad lists with None to match max_length
         valid_tpr_q0 += [None] * (max_length - len(valid_tpr_q0))
         valid_tpr_p2 += [None] * (max_length - len(valid_tpr_p2))
@@ -117,7 +132,7 @@ def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersectio
         valid_ipr_pwf += [None] * (max_length - len(valid_ipr_pwf))
         valid_intersection_q0 += [None] * (max_length - len(valid_intersection_q0))
         valid_intersection_p += [None] * (max_length - len(valid_intersection_p))
-        
+
         # Create DataFrame
         df = pd.DataFrame({
             'TPR_Q0': valid_tpr_q0,
@@ -127,23 +142,20 @@ def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersectio
             'Intersection_Q0': valid_intersection_q0,
             'Intersection_P': valid_intersection_p
         })
-        
+
+        # Add notes if any issues
+        if notes:
+            df['Note'] = [', '.join(notes)] + [None] * (len(df) - 1)
+            logger.warning(f"Added notes to DataFrame: {notes}")
+        elif df.empty or (not valid_tpr_q0 and not valid_ipr_q0 and not valid_intersection_q0):
+            df = pd.DataFrame({
+                'Note': ["No valid data. Check input parameters, data_ref, or calculations."]
+            })
+            logger.warning("No valid data for DataFrame, created minimal DataFrame with note")
+
         # Log DataFrame info
         logger.info(f"DataFrame created with {len(df)} rows and columns: {df.columns.tolist()}")
-        
-        # If no valid TPR or IPR points, add a note
-        if not valid_tpr_q0 and not valid_ipr_q0:
-            logger.warning("No valid TPR or IPR points, adding note to Excel")
-            df = pd.DataFrame({
-                "Note": ["No valid TPR or IPR points. Check input data or calculations."]
-            })
-        elif not valid_tpr_q0:
-            logger.warning("No valid TPR points, adding note to Excel")
-            df["Note"] = ["No valid TPR points"] + [None] * (len(df) - 1)
-        elif not valid_ipr_q0:
-            logger.warning("No valid IPR points, adding note to Excel")
-            df["Note"] = ["No valid IPR points"] + [None] * (len(df) - 1)
-        
+
         # Export to Excel
         output = io.BytesIO()
         df.to_excel(output, index=False, engine='openpyxl')
@@ -154,7 +166,6 @@ def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersectio
     
     except Exception as e:
         logger.error(f"Failed to export to Excel: {str(e)}")
-        # Create minimal Excel file with error message
         try:
             df = pd.DataFrame({"Error": [f"Export failed: {str(e)}"]})
             output = io.BytesIO()
