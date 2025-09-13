@@ -220,8 +220,8 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
         if len(points) == 2:
             q01, pwf1 = points[0]
             q02, pwf2 = points[1]
-            if pwf1 == pwf2 or q01 == q02 or pwf1 <= 0 or pwf2 <= 0 or q01 <= 0 or q02 <= 0:
-                logger.error("Invalid Fetkovich inputs: Pwf1, Pwf2, Q01, Q02 must be positive and distinct.")
+            if pwf1 == pwf2 or q01 == q02:
+                logger.error("Invalid Fetkovich inputs: Pwf1, Pwf2, Q01, Q02 must be distinct.")
                 raise ValueError("Invalid Fetkovich input parameters.")
             delta_p1 = pr**2 - pwf1**2
             delta_p2 = pr**2 - pwf2**2
@@ -311,6 +311,7 @@ def find_intersection(tpr_points, ipr_points, pr):
         logger.error("Empty TPR or IPR points provided.")
         return None, None
 
+    # Filter valid points
     tpr_points = [(q, p) for q, p in tpr_points if np.isfinite(q) and np.isfinite(p) and q >= 0 and p >= 0]
     ipr_points = [(q, p) for q, p in ipr_points if np.isfinite(q) and np.isfinite(p) and q >= 0 and p >= 0]
     
@@ -327,6 +328,7 @@ def find_intersection(tpr_points, ipr_points, pr):
         ipr_q0 = np.array(ipr_q0, dtype=float)
         ipr_pwf = np.array(ipr_pwf, dtype=float)
         
+        # Sort points
         tpr_indices = np.argsort(tpr_q0)
         tpr_q0 = tpr_q0[tpr_indices]
         tpr_p2 = tpr_p2[tpr_indices]
@@ -339,26 +341,58 @@ def find_intersection(tpr_points, ipr_points, pr):
         logger.debug(f"TPR q0: {tpr_q0.tolist()}, TPR p2: {tpr_p2.tolist()}")
         logger.debug(f"IPR q0: {ipr_q0.tolist()}, IPR pwf: {ipr_pwf.tolist()}")
 
+        # Interpolate within common range
+        q_min = max(min(tpr_q0), min(ipr_q0))
+        q_max = min(max(tpr_q0), max(ipr_q0))
+        
+        if q_min >= q_max:
+            logger.warning(f"No valid intersection range: Q0 from {q_min:.2f} to {q_max:.2f}")
+            return None, None
+
+        # Create interpolation functions
         tpr_interp = interp1d(tpr_q0, tpr_p2, kind='linear', fill_value='extrapolate')
         ipr_interp = interp1d(ipr_q0, ipr_pwf, kind='linear', fill_value='extrapolate')
 
         def diff_func(q):
             try:
-                return ipr_interp(q) - tpr_interp(q)
+                tpr_val = tpr_interp(q)
+                ipr_val = ipr_interp(q)
+                if not (np.isfinite(tpr_val) and np.isfinite(ipr_val)):
+                    return np.inf
+                return ipr_val - tpr_val
             except Exception as e:
                 logger.debug(f"Intersection function error at q={q}: {str(e)}")
                 return np.inf
 
-        q_min = max(min(tpr_q0), min(ipr_q0))
-        q_max = min(max(tpr_q0), max(ipr_q0))
-        
-        if q_min >= q_max:
-            logger.warning(f"No valid intersection range: Q0 from {q_min:.2f} to {q_max:.2f}. Check TPR and IPR points.")
-            return None, None
-
+        # Check for sign change to ensure intersection exists
         f_min = diff_func(q_min)
         f_max = diff_func(q_max)
         if not (np.isfinite(f_min) and np.isfinite(f_max)):
             logger.warning(f"Non-finite function values: f_min={f_min}, f_max={f_max}")
             return None, None
 
+        if f_min * f_max >= 0:
+            logger.warning("No sign change in interpolation function, no intersection found.")
+            return None, None
+
+        # Find intersection
+        try:
+            result = root_scalar(diff_func, bracket=[q_min, q_max], method='brentq')
+            if result.converged:
+                intersection_q0 = result.root
+                intersection_p = tpr_interp(intersection_q0)
+                if 0 <= intersection_p <= pr and 0 <= intersection_q0 <= 1000:
+                    logger.info(f"Intersection found at Q0={intersection_q0:.2f}, P={intersection_p:.2f}")
+                    return intersection_q0, intersection_p
+                else:
+                    logger.warning(f"Intersection out of bounds: Q0={intersection_q0:.2f}, P={intersection_p:.2f}")
+                    return None, None
+        except Exception as e:
+            logger.warning(f"Intersection calculation failed: {str(e)}")
+            return None, None
+
+        logger.warning("No valid intersection found within range.")
+        return None, None
+    except Exception as e:
+        logger.error(f"Intersection calculation failed: {str(e)}")
+        return None, None
