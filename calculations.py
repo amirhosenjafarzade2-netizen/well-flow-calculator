@@ -1,6 +1,3 @@
-# calculations.py
-# Core computational functions for the Well Pressure and Depth Calculator
-
 import streamlit as st
 import numpy as np
 from scipy.optimize import root_scalar, curve_fit
@@ -194,9 +191,13 @@ def calculate_tpr_points(conduit_size, glr, D, pwh, data_ref):
     for prate in PRODUCTION_RATES:
         result = calculate_results(conduit_size, prate, glr, pwh, D, data_ref)
         if result[0] is None:
-            raise ValueError(f"Failed to compute p2 for production rate {prate} stb/day.")
+            logger.warning(f"Failed to compute p2 for production rate {prate} stb/day.")
+            continue
         y1, y2, p2, coeffs, interpolation_status, glr1, glr2 = result
         tpr_points.append((prate, p2))
+    if not tpr_points:
+        logger.error("No valid TPR points computed.")
+        raise ValueError("No valid TPR points computed.")
     logger.info(f"TPR points: {tpr_points}")
     return tpr_points
 
@@ -204,6 +205,7 @@ def calculate_tpr_points(conduit_size, glr, D, pwh, data_ref):
 def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, pwf2=None, q03=None, pwf3=None, q04=None, pwf4=None):
     """
     Calculate IPR parameters and points using Fetkovich method.
+    If c and n are provided, use them directly; otherwise, calculate from points.
     Returns (c, n, ipr_points, fetkovich_points).
     """
     points = []
@@ -216,7 +218,14 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
     if q04 is not None and pwf4 is not None and q04 > 0 and pwf4 > 0:
         points.append((q04, pwf4))
 
-    if c is None or n is None:
+    if c is not None and n is not None:
+        # Validate provided c and n
+        if c <= 0 or not np.isfinite(c) or n <= 0 or n > 2.0 or not np.isfinite(n):
+            logger.error(f"Invalid Fetkovich parameters: C={c}, n={n}.")
+            st.error(f"Invalid Fetkovich parameters: C={c}, n={n}. C must be positive, n must be in (0, 2].")
+            raise ValueError(f"Invalid Fetkovich parameters: C={c}, n={n}")
+    else:
+        # Calculate c and n from points
         if len(points) < 2:
             logger.error("At least two valid points required for Fetkovich parameters.")
             st.error("At least two valid points (Q0 > 0, Pwf > 0) required for Fetkovich method. Please provide valid inputs.")
@@ -251,11 +260,12 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
                 st.error(f"Failed to compute Fetkovich parameters: {str(e)}. Please check input points.")
                 raise ValueError("Curve fit failed.")
 
-    if c <= 0 or not np.isfinite(c) or n <= 0 or n > 2.0 or not np.isfinite(n):
-        logger.error(f"Invalid Fetkovich parameters: C={c}, n={n}.")
-        st.error(f"Invalid Fetkovich parameters: C={c}, n={n}. C must be positive, n must be in (0, 2].")
-        raise ValueError(f"Invalid Fetkovich parameters: C={c}, n={n}")
+        if c <= 0 or not np.isfinite(c) or n <= 0 or n > 2.0 or not np.isfinite(n):
+            logger.error(f"Invalid Fetkovich parameters: C={c}, n={n}.")
+            st.error(f"Invalid Fetkovich parameters: C={c}, n={n}. C must be positive, n must be in (0, 2].")
+            raise ValueError(f"Invalid Fetkovich parameters: C={c}, n={n}")
 
+    # Generate IPR points
     pwf_values = np.linspace(0, pr, 15)
     ipr_points = []
     for pwf in pwf_values:
@@ -316,48 +326,90 @@ def find_intersection(tpr_points, ipr_points, pr):
     Find intersection between TPR and IPR curves using interpolation.
     Returns (intersection_q0, intersection_p) or (None, None) if no valid intersection.
     """
-    ipr_q0, ipr_pwf = zip(*ipr_points)
-    ipr_interp = interp1d(ipr_q0, ipr_pwf, kind='linear', fill_value='extrapolate')
-    tpr_q0, tpr_p2 = zip(*tpr_points)
-    tpr_interp = interp1d(tpr_q0, tpr_p2, kind='linear', fill_value='extrapolate')
+    # Validate input points
+    if not tpr_points or not ipr_points:
+        logger.error("Empty TPR or IPR points provided.")
+        st.error("No valid TPR or IPR points provided for intersection calculation.")
+        return None, None
 
-    def diff_func(q):
-        try:
-            return ipr_interp(q) - tpr_interp(q)
-        except Exception as e:
-            logger.debug(f"Intersection function error at q={q}: {str(e)}")
-            return np.inf
+    # Filter valid points and ensure finite values
+    tpr_points = [(q, p) for q, p in tpr_points if np.isfinite(q) and np.isfinite(p) and q >= 0 and p >= 0]
+    ipr_points = [(q, p) for q, p in ipr_points if np.isfinite(q) and np.isfinite(p) and q >= 0 and p >= 0]
+    
+    if len(tpr_points) < 2 or len(ipr_points) < 2:
+        logger.error(f"Insufficient points: TPR={len(tpr_points)}, IPR={len(ipr_points)}")
+        st.error("Insufficient valid points for TPR or IPR curves. At least two points required per curve.")
+        return None, None
 
     try:
-        q_min = max(min(ipr_q0), min(tpr_q0))
-        q_max = min(max(ipr_q0), max(tpr_q0))
+        tpr_q0, tpr_p2 = zip(*tpr_points)
+        ipr_q0, ipr_pwf = zip(*ipr_points)
+        
+        # Ensure arrays are sorted by q0
+        tpr_indices = np.argsort(tpr_q0)
+        tpr_q0 = np.array(tpr_q0)[tpr_indices]
+        tpr_p2 = np.array(tpr_p2)[tpr_indices]
+        
+        ipr_indices = np.argsort(ipr_q0)
+        ipr_q0 = np.array(ipr_q0)[ipr_indices]
+        ipr_pwf = np.array(ipr_pwf)[ipr_indices]
+
+        # Create interpolation functions
+        tpr_interp = interp1d(tpr_q0, tpr_p2, kind='linear', fill_value='extrapolate')
+        ipr_interp = interp1d(ipr_q0, ipr_pwf, kind='linear', fill_value='extrapolate')
+
+        # Define difference function
+        def diff_func(q):
+            try:
+                return ipr_interp(q) - tpr_interp(q)
+            except Exception as e:
+                logger.debug(f"Intersection function error at q={q}: {str(e)}")
+                return np.inf
+
+        # Determine valid intersection range
+        q_min = max(min(tpr_q0), min(ipr_q0))
+        q_max = min(max(tpr_q0), max(ipr_q0))
+        
         if q_min >= q_max:
             logger.warning(f"Invalid Q0 range: q_min={q_min:.2f}, q_max={q_max:.2f}")
-            st.warning(f"No valid intersection range: Q0 from {q_min:.2f} to {q_max:.2f}.")
+            st.warning(f"No valid intersection range: Q0 from {q_min:.2f} to {q_max:.2f}. Check TPR and IPR points.")
             return None, None
+
+        # Check for sign change
         f_min = diff_func(q_min)
         f_max = diff_func(q_max)
         if not (np.isfinite(f_min) and np.isfinite(f_max)):
             logger.warning(f"Non-finite function values: f_min={f_min}, f_max={f_max}")
-            st.warning("Intersection calculation failed due to invalid values.")
+            st.warning("Intersection calculation failed due to invalid values in TPR or IPR curves.")
             return None, None
+        
         if f_min * f_max > 0:
             logger.warning(f"No sign change detected: f_min={f_min:.2f}, f_max={f_max:.2f}")
             st.warning("No intersection found between TPR and IPR curves.")
             return None, None
-        result = root_scalar(diff_func, bracket=[q_min, q_max], method='brentq')
-        intersection_q0 = result.root if result.converged else None
-        intersection_p = ipr_interp(intersection_q0) if intersection_q0 is not None else None
-        if (intersection_q0 is not None and 0 <= intersection_q0 <= 750 and
-            0 <= intersection_p <= max(pr, 4000) and
-            abs(ipr_interp(intersection_q0) - tpr_interp(intersection_q0)) < 1.0):
-            logger.info(f"Intersection found: Q0={intersection_q0:.2f} stb/day, P={intersection_p:.2f} psi")
-            st.write(f"Intersection found: Q0={intersection_q0:.2f} stb/day, P={intersection_p:.2f} psi")
-            return intersection_q0, intersection_p
-        logger.warning(f"Intersection rejected: Q0={intersection_q0:.2f}, P={intersection_p:.2f}")
-        st.warning(f"Invalid intersection: Q0={intersection_q0:.2f}, P={intersection_p:.2f}.")
-        return None, None
+
+        # Find intersection
+        try:
+            result = root_scalar(diff_func, bracket=[q_min, q_max], method='brentq')
+            intersection_q0 = result.root if result.converged else None
+            if intersection_q0 is not None:
+                intersection_p = ipr_interp(intersection_q0)
+                # Validate intersection
+                if (0 <= intersection_q0 <= 750 and
+                    0 <= intersection_p <= max(pr, 4000) and
+                    abs(ipr_interp(intersection_q0) - tpr_interp(intersection_q0)) < 1.0):
+                    logger.info(f"Intersection found: Q0={intersection_q0:.2f} stb/day, P={intersection_p:.2f} psi")
+                    st.write(f"Intersection found: Q0={intersection_q0:.2f} stb/day, P={intersection_p:.2f} psi")
+                    return intersection_q0, intersection_p
+                else:
+                    logger.warning(f"Intersection rejected: Q0={intersection_q0:.2f}, P={intersection_p:.2f}")
+                    st.warning(f"Invalid intersection: Q0={intersection_q0:.2f}, P={intersection_p:.2f}.")
+                    return None, None
+        except Exception as e:
+            logger.error(f"Intersection search failed: {str(e)}")
+            st.warning(f"Failed to find intersection: {str(e)}.")
+            return None, None
     except Exception as e:
-        logger.error(f"Intersection search failed: {str(e)}")
-        st.warning(f"Failed to find intersection: {str(e)}.")
+        logger.error(f"Intersection calculation failed: {str(e)}")
+        st.error(f"Calculation failed: {str(e)}")
         return None, None
