@@ -109,83 +109,87 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
         )
         st.session_state.p2_finder_inputs['D'] = D
     
-    calculate = st.button("Calculate")
+    calculate = st.button("Calculate p2")
     
     if calculate:
         with st.spinner("Calculating..."):
             errors = []
             if not validate_conduit_size(conduit_size):
-                errors.append("Invalid conduit size.")
+                errors.append("Invalid conduit size. Must be 2.875 or 3.5 inches.")
             if not validate_production_rate(production_rate):
-                errors.append("Invalid production rate.")
+                errors.append("Invalid production rate. Must be between 50 and 600 stb/day.")
             if not validate_glr(conduit_size, production_rate, glr):
                 try:
                     valid_range = get_valid_glr_range(conduit_size, production_rate)
-                    logger.debug(f"Valid GLR range for conduit_size={conduit_size}, production_rate={production_rate}: {valid_range}")
-                    errors.append(f"Invalid GLR. Valid ranges: {str(valid_range)}")
+                    errors.append(f"Invalid GLR. Valid ranges: {valid_range}")
                     ranges = interpolation_ranges.get((conduit_size, production_rate), [])
                     if ranges:
                         min_glr, max_glr = ranges[0]
                         glr = min(max_glr, max(min_glr, glr))
-                        st.info(f"GLR auto-corrected to {glr} scf/stb.")
+                        st.info(f"GLR auto-corrected to {glr:.2f} scf/stb.")
                 except Exception as e:
                     errors.append(f"Failed to validate GLR: {str(e)}")
                     logger.error(f"GLR validation error: {str(e)}")
-            
             if not validate_pressure(p1, "wellhead pressure"):
-                errors.append("Invalid wellhead pressure.")
+                errors.append("Invalid wellhead pressure. Must be between 0 and 4000 psi.")
             if not validate_depth_and_pressure(0, D):
-                errors.append("Invalid well length.")
+                errors.append("Invalid well length. Must be between 0 and 31000 ft.")
             
             if errors:
                 for error in errors:
                     st.error(error)
                 logger.error(f"p2 Finder errors: {errors}")
             else:
-                result = calculate_results(conduit_size, production_rate, glr, p1, D, reference_data)
-                if result[0] is None:
-                    st.error("Calculation failed. Please check inputs and try again.")
-                else:
-                    y1, y2, p2, coeffs, interpolation_status, glr1, glr2 = result
-                    st.subheader("Results")
-                    st.write(f"**Depth y1**: {y1:.2f} ft")
-                    st.write(f"**Depth y2**: {y2:.2f} ft")
-                    st.write(f"**Pressure p2**: {p2:.2f} psi")
-                    st.write(f"**Interpolation Status**: {interpolation_status}")
-                    st.write(f"**GLR Range**: [{glr1}, {glr2}]")
-                    st.session_state.p2_finder_results = {
-                        'y1': y1, 'y2': y2, 'p2': p2, 'coeffs': coeffs,
-                        'interpolation_status': interpolation_status,
-                        'glr_input': glr, 'production_rate': production_rate
-                    }
-                    
-                    try:
-                        fig = plot_results(
-                            p1, y1, y2, p2, D, coeffs, glr, interpolation_status, production_rate,
-                            mode='color'
-                        )
-                        if fig is not None:
-                            st.subheader("Pressure vs Depth Plot")
-                            st.pyplot(fig)
-                            
-                            if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
-                                try:
-                                    st.download_button(
-                                        label="Download Plot as PNG",
-                                        data=export_plot_to_png(fig),
-                                        file_name="p2_finder_plot.png",
-                                        mime="image/png"
-                                    )
-                                except Exception as e:
-                                    st.error(f"Failed to export plot as PNG: {str(e)}")
-                                    logger.error(f"PNG export failed: {str(e)}")
+                try:
+                    result = calculate_results(conduit_size, production_rate, glr, p1, D, reference_data)
+                    if result[0] is None:
+                        st.error("Calculation failed. Please check inputs and try again.")
+                        logger.error("p2 Finder calculation returned None")
+                    else:
+                        y1, y2, p2, coeffs, interpolation_status, glr1, glr2 = result
+                        st.subheader("p2 Finder Results")
+                        st.write(f"**Depth y1**: {y1:.2f} ft")
+                        st.write(f"**Depth y2**: {y2:.2f} ft")
+                        st.write(f"**Bottomhole Pressure p2**: {p2:.2f} psi")
+                        st.write(f"**Interpolation Status**: {interpolation_status}")
+                        st.write(f"**GLR Range**: [{glr1:.2f}, {glr2:.2f}]")
+                        st.session_state.p2_finder_results = {
+                            'y1': y1, 'y2': y2, 'p2': p2, 'coeffs': coeffs,
+                            'interpolation_status': interpolation_status,
+                            'glr_input': glr, 'production_rate': production_rate
+                        }
+                        
+                        try:
+                            fig = plot_results(
+                                p1, y1, y2, p2, D, coeffs, glr, interpolation_status,
+                                production_rate, mode='color'
+                            )
+                            if fig is not None:
+                                st.subheader("Pressure vs Depth Plot")
+                                st.pyplot(fig)
+                                
+                                if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
+                                    try:
+                                        st.download_button(
+                                            label="Download Plot as PNG",
+                                            data=export_plot_to_png(fig),
+                                            file_name="p2_finder_plot.png",
+                                            mime="image/png"
+                                        )
+                                    except Exception as e:
+                                        st.error(f"Failed to export plot as PNG: {str(e)}")
+                                        logger.error(f"p2 Finder PNG export failed: {str(e)}")
+                                else:
+                                    st.warning("Plot is empty - cannot export.")
                             else:
-                                st.warning("Plot is empty - cannot export.")
-                        else:
-                            st.error("Failed to generate plot.")
-                    except Exception as e:
-                        st.error(f"Failed to plot results: {str(e)}")
-                        logger.error(f"Plotting failed: {str(e)}")
+                                st.error("Failed to generate pressure vs depth plot.")
+                                logger.error("p2 Finder plot returned None")
+                        except Exception as e:
+                            st.error(f"Failed to plot results: {str(e)}")
+                            logger.error(f"p2 Finder plotting failed: {str(e)}")
+                except Exception as e:
+                    st.error(f"Calculation failed: {str(e)}")
+                    logger.error(f"p2 Finder calculation failed: {str(e)}")
     
     st.write("**Calculation Logs**")
     st.write("Any warnings or informational messages will appear here.")
@@ -465,27 +469,27 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
         with st.spinner("Calculating..."):
             errors = []
             if not validate_conduit_size(conduit_size):
-                errors.append("Invalid conduit size.")
+                errors.append("Invalid conduit size. Must be 2.875 or 3.5 inches.")
             if not validate_production_rate(production_rate):
-                errors.append("Invalid production rate.")
+                errors.append("Invalid production rate. Must be between 50 and 600 stb/day.")
             if not validate_glr(conduit_size, production_rate, glr):
                 try:
                     valid_range = get_valid_glr_range(conduit_size, production_rate)
-                    errors.append(f"Invalid GLR. Valid ranges: {str(valid_range)}")
+                    errors.append(f"Invalid GLR. Valid ranges: {valid_range}")
                     ranges = interpolation_ranges.get((conduit_size, production_rate), [])
                     if ranges:
                         min_glr, max_glr = ranges[0]
                         glr = min(max_glr, max(min_glr, glr))
-                        st.info(f"GLR auto-corrected to {glr} scf/stb.")
+                        st.info(f"GLR auto-corrected to {glr:.2f} scf/stb.")
                 except Exception as e:
                     errors.append(f"Failed to validate GLR: {str(e)}")
                     logger.error(f"GLR validation error: {str(e)}")
             if not validate_pressure(pwh, "wellhead pressure"):
-                errors.append("Invalid wellhead pressure.")
+                errors.append("Invalid wellhead pressure. Must be between 0 and 4000 psi.")
             if not validate_depth_and_pressure(0, D):
-                errors.append("Invalid well length.")
+                errors.append("Invalid well length. Must be between 0 and 31000 ft.")
             if not validate_pressure(pr, "reservoir pressure"):
-                errors.append("Invalid reservoir pressure.")
+                errors.append("Invalid reservoir pressure. Must be between 0 and 4000 psi.")
             
             if ipr_method == "Fetkovich" and fetkovich_input_method == "Enter C and n directly":
                 if not validate_fetkovich_parameters(c, n):
@@ -495,12 +499,12 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 if not validate_fetkovich_points(points, pr):
                     errors.append("Invalid Fetkovich points: At least two valid points required (Q0 > 0, 0 ≤ Pwf ≤ Pr).")
             elif ipr_method == "Vogel" and (q_max is None or q_max <= 0):
-                errors.append("Invalid Q_max for Vogel method.")
+                errors.append("Invalid Q_max for Vogel method. Must be positive.")
             elif ipr_method == "Composite":
                 if j_star is None or j_star <= 0:
-                    errors.append("Invalid J* for Composite method.")
+                    errors.append("Invalid J* for Composite method. Must be positive.")
                 if p_b is None or p_b <= 0 or p_b > pr:
-                    errors.append("Invalid P_b for Composite method.")
+                    errors.append("Invalid P_b for Composite method. Must be between 0 and Pr.")
             
             if errors:
                 for error in errors:
@@ -537,7 +541,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                                         label="Download TPR/IPR Plot as PNG",
                                         data=export_plot_to_png(fig),
                                         file_name="tpr_ipr_plot.png",
-                                        mime="imagePNG"
+                                        mime="image/png"
                                     )
                                 except Exception as e:
                                     st.error(f"Failed to export TPR/IPR plot as PNG: {str(e)}")
@@ -621,7 +625,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                             logger.error(f"TPR/IPR intersection plotting failed: {str(e)}")
                     else:
                         st.warning("No valid intersection point found. TPR and IPR curves are plotted above.")
-                        logger.warning("No valid Submission failed: No valid intersection point found.")
+                        logger.warning("No valid intersection point found")
                     
                     # Export results to Excel
                     try:
@@ -647,8 +651,93 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
     st.write("**Calculation Logs**")
     st.write("Any warnings or informational messages will appear here.")
 
+def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates):
+    """UI for GLR Curves: Plot pressure vs. depth curves for all GLRs at given conduit size and production rate."""
+    logger.info("Running GLR Graph Drawer UI")
+    
+    if 'glr_graph_inputs' not in st.session_state:
+        st.session_state.glr_graph_inputs = {
+            'conduit_size': 2.875,
+            'production_rate': 100.0
+        }
+    
+    st.subheader("GLR Curves Inputs")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        valid_conduits = [2.875, 3.5]
+        conduit_size = st.selectbox(
+            "Conduit Size (in):",
+            valid_conduits,
+            index=valid_conduits.index(st.session_state.glr_graph_inputs['conduit_size']),
+            key="glr_conduit",
+            help="Select the conduit size (2.875 or 3.5 inches)."
+        )
+        st.session_state.glr_graph_inputs['conduit_size'] = conduit_size
+    
+    with col2:
+        valid_prates, _ = get_valid_options(conduit_size)
+        valid_prates = [float(pr) for pr in valid_prates]
+        production_rate = st.selectbox(
+            "Production Rate (stb/day):",
+            valid_prates,
+            index=valid_prates.index(st.session_state.glr_graph_inputs['production_rate']) if st.session_state.glr_graph_inputs['production_rate'] in valid_prates else 0,
+            key="glr_prate",
+            help="Select the production rate (50 to 600 stb/day)."
+        )
+        st.session_state.glr_graph_inputs['production_rate'] = production_rate
+    
+    plot_glr = st.button("Plot GLR Curves")
+    
+    if plot_glr:
+        with st.spinner("Generating GLR Curves..."):
+            errors = []
+            if not validate_conduit_size(conduit_size):
+                errors.append("Invalid conduit size. Must be 2.875 or 3.5 inches.")
+            if not validate_production_rate(production_rate):
+                errors.append("Invalid production rate. Must be between 50 and 600 stb/day.")
+            
+            if errors:
+                for error in errors:
+                    st.error(error)
+                logger.error(f"GLR Graph Drawer errors: {errors}")
+            else:
+                try:
+                    fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
+                    if fig is not None:
+                        st.subheader("GLR Pressure vs Depth Curves")
+                        st.pyplot(fig)
+                        
+                        if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
+                            try:
+                                st.download_button(
+                                    label="Download GLR Plot as PNG",
+                                    data=export_plot_to_png(fig),
+                                    file_name="glr_curves.png",
+                                    mime="image/png"
+                                )
+                            except Exception as e:
+                                st.error(f"Failed to export GLR plot as PNG: {str(e)}")
+                                logger.error(f"GLR PNG export failed: {str(e)}")
+                        else:
+                            st.warning("GLR plot is empty - cannot export.")
+                    else:
+                        st.error("Failed to generate GLR plot.")
+                        logger.error("GLR plot returned None")
+                except Exception as e:
+                    st.error(f"Failed to plot GLR curves: {str(e)}")
+                    logger.error(f"GLR plotting failed: {str(e)}")
+    
+    st.write("**Plotting Logs**")
+    st.write("Any warnings or informational messages will appear here.")
+
 def main():
+    """Main function to set up the Streamlit app with tabs for different functionalities."""
     st.title("Well Performance Calculator")
+    apply_theme()
+    
+    # Placeholder for reference data and interpolation ranges
+    # In a real application, these would be loaded from a data source
     reference_data = [...]  # Assume reference data is loaded
     interpolation_ranges = {...}  # Assume interpolation ranges are loaded
     production_rates = [50, 100, 200, 300, 400, 500, 600]
@@ -662,41 +751,7 @@ def main():
         run_natural_flow_finder(reference_data, interpolation_ranges, production_rates)
     
     with tab3:
-        st.subheader("GLR Curves")
-        col1, col2 = st.columns(2)
-        with col1:
-            conduit_size = st.selectbox(
-                "Conduit Size (in):",
-                [2.875, 3.5],
-                help="Select the conduit size for GLR curves."
-            )
-        with col2:
-            production_rate = st.selectbox(
-                "Production Rate (stb/day):",
-                production_rates,
-                help="Select the production rate for GLR curves."
-            )
-        plot_glr = st.button("Plot GLR Curves")
-        if plot_glr:
-            try:
-                fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
-                if fig is not None:
-                    st.pyplot(fig)
-                    try:
-                        st.download_button(
-                            label="Download GLR Plot as PNG",
-                            data=export_plot_to_png(fig),
-                            file_name="glr_curves.png",
-                            mime="image/png"
-                        )
-                    except Exception as e:
-                        st.error(f"Failed to export GLR plot as PNG: {str(e)}")
-                        logger.error(f"GLR PNG export failed: {str(e)}")
-                else:
-                    st.error("Failed to generate GLR plot.")
-            except Exception as e:
-                st.error(f"Failed to plot GLR curves: {str(e)}")
-                logger.error(f"GLR plotting failed: {str(e)}")
+        run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
 
 if __name__ == "__main__":
     main()
