@@ -201,7 +201,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             'D': 1000.0,
             'pr': 2000.0,
             'ipr_method': 'Fetkovich',
-            'fetkovich_input_method': 'Points',
+            'fetkovich_input_method': 'Direct',
             'c': 0.0001,
             'n': 0.5,
             'q_max': 500.0,
@@ -449,6 +449,15 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
     if calculate:
         with st.spinner("Calculating..."):
             errors = []
+            tpr_points = None
+            ipr_points = None
+            fetkovich_points = []
+            intersection_q0 = None
+            intersection_p = None
+            c_val = None
+            n_val = None
+
+            # Validate inputs
             if not validate_conduit_size(conduit_size):
                 errors.append("Invalid conduit size.")
             if not validate_production_rate(production_rate):
@@ -487,8 +496,11 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 logger.error(f"Natural Flow Finder errors: {errors}")
             else:
                 try:
+                    # Calculate TPR points
                     tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, reference_data)
-                    fetkovich_points = []
+                    logger.info(f"Generated {len(tpr_points)} TPR points.")
+
+                    # Calculate IPR points
                     if ipr_method == "Fetkovich":
                         c_val, n_val, ipr_points, fetkovich_points = calculate_ipr_fetkovich(
                             pr,
@@ -506,16 +518,9 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         _, ipr_points = calculate_ipr_vogel(pr, q_max)
                     else:  # Composite
                         _, _, ipr_points = calculate_ipr_composite(pr, j_star, p_b)
-                    
-                    intersection_q0, intersection_p = find_intersection(tpr_points, ipr_points, pr)
-                    
-                    st.subheader("Point of Natural Flow Results")
-                    if intersection_q0 is not None and intersection_p is not None:
-                        st.write(f"**Natural Flow Rate**: {intersection_q0:.2f} stb/day")
-                        st.write(f"**Flowing Bottomhole Pressure**: {intersection_p:.2f} psi")
-                    else:
-                        st.warning("Well cannot flow naturally; artificial lift required. Showing TPR and IPR curves for visualization.")
-                    
+                    logger.info(f"Generated {len(ipr_points)} IPR points.")
+
+                    # Store results in session state
                     st.session_state.natural_flow_results = {
                         'tpr_points': tpr_points,
                         'ipr_points': ipr_points,
@@ -531,7 +536,58 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         'c': c,
                         'n': n
                     }
+
+                    # Plot curves even if intersection fails
+                    ipr_params_str = f'Pr: {pr} psi, Params: {ipr_method}'
+                    if ipr_method == "Fetkovich":
+                        ipr_params_str += f', C: {c:.4e}, n: {n:.4f}'
+                    elif ipr_method == "Vogel":
+                        ipr_params_str += f', Q_max: {q_max:.2f}'
+                    else:
+                        ipr_params_str += f', J*: {j_star:.4f}, P_b: {p_b:.2f}'
                     
+                    if tpr_points and ipr_points:
+                        try:
+                            fig = plot_curves(
+                                tpr_points, ipr_points, intersection_q0, intersection_p, conduit_size, glr, D, pwh, pr, ipr_params_str,
+                                mode='color'
+                            )
+                            st.subheader("TPR and IPR Curves (Intersection indicates Point of Natural Flow)")
+                            st.pyplot(fig)
+                            
+                            # Check for valid fig before download
+                            if fig is not None and len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
+                                try:
+                                    st.download_button(
+                                        label="Download TPR/IPR Plot as PNG",
+                                        data=export_plot_to_png(fig),
+                                        file_name="tpr_ipr_plot.png",
+                                        mime="image/png"
+                                    )
+                                except Exception as e:
+                                    st.error(f"Failed to export plot as PNG: {str(e)}")
+                                    logger.error(f"PNG export failed: {str(e)}")
+                            else:
+                                st.warning("Plot is empty - cannot export.")
+                        except Exception as e:
+                            st.error(f"Failed to plot TPR/IPR curves: {str(e)}")
+                            logger.error(f"Plotting failed: {str(e)}")
+                    
+                    # Calculate intersection
+                    intersection_q0, intersection_p = find_intersection(tpr_points, ipr_points, pr)
+                    
+                    st.subheader("Point of Natural Flow Results")
+                    if intersection_q0 is not None and intersection_p is not None:
+                        st.write(f"**Natural Flow Rate**: {intersection_q0:.2f} stb/day")
+                        st.write(f"**Flowing Bottomhole Pressure**: {intersection_p:.2f} psi")
+                    else:
+                        st.warning("Well cannot flow naturally; artificial lift required. Showing TPR and IPR curves for visualization.")
+                    
+                    # Update session state with intersection results
+                    st.session_state.natural_flow_results['intersection_q0'] = intersection_q0
+                    st.session_state.natural_flow_results['intersection_p'] = intersection_p
+                    
+                    # Export results
                     if tpr_points and ipr_points:
                         st.download_button(
                             label="Download Results as Excel",
@@ -540,67 +596,47 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                     
-                    ipr_params_str = f'Pr: {pr} psi, Params: {ipr_method}'
-                    if ipr_method == "Fetkovich":
-                        ipr_params_str += f', C: {c:.4e}, n: {n:.4f}'
-                    elif ipr_method == "Vogel":
-                        ipr_params_str += f', Q_max: {q_max:.2f}'
-                    else:
-                        ipr_params_str += f', J*: {j_star:.4f}, P_b: {p_b:.2f}'
-                    fig = plot_curves(
-                        tpr_points, ipr_points, intersection_q0, intersection_p, conduit_size, glr, D, pwh, pr, ipr_params_str,
-                        mode='color'
-                    )
-                    st.subheader("TPR and IPR Curves (Intersection indicates Point of Natural Flow)")
-                    st.pyplot(fig)
-                    
-                    # Check for valid fig before download
-                    if fig is not None and len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
-                        try:
-                            st.download_button(
-                                label="Download TPR/IPR Plot as PNG",
-                                data=export_plot_to_png(fig),
-                                file_name="tpr_ipr_plot.png",
-                                mime="image/png"
-                            )
-                        except Exception as e:
-                            st.error(f"Failed to export plot as PNG: {str(e)}")
-                            logger.error(f"PNG export failed: {str(e)}")
-                    else:
-                        st.warning("Plot is empty - cannot export.")
-                    
+                    # Plot Fetkovich-specific plots
                     if ipr_method == "Fetkovich" and fetkovich_points:
-                        fig_log = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode='color')
-                        if fig_log is not None and len(fig_log.axes) > 0:
-                            st.subheader("Fetkovich Log-Log Plot")
-                            st.pyplot(fig_log)
-                            if len(fig_log.axes) > 0 and len(fig_log.axes[0].lines) > 0:
-                                try:
-                                    st.download_button(
-                                        label="Download Log-Log Plot as PNG",
-                                        data=export_plot_to_png(fig_log),
-                                        file_name="fetkovich_log_log.png",
-                                        mime="image/png"
-                                    )
-                                except Exception as e:
-                                    st.error(f"Failed to export plot as PNG: {str(e)}")
-                                    logger.error(f"PNG export failed: {str(e)}")
+                        try:
+                            fig_log = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode='color')
+                            if fig_log is not None and len(fig_log.axes) > 0:
+                                st.subheader("Fetkovich Log-Log Plot")
+                                st.pyplot(fig_log)
+                                if len(fig_log.axes) > 0 and len(fig_log.axes[0].lines) > 0:
+                                    try:
+                                        st.download_button(
+                                            label="Download Log-Log Plot as PNG",
+                                            data=export_plot_to_png(fig_log),
+                                            file_name="fetkovich_log_log.png",
+                                            mime="image/png"
+                                        )
+                                    except Exception as e:
+                                        st.error(f"Failed to export plot as PNG: {str(e)}")
+                                        logger.error(f"PNG export failed: {str(e)}")
+                        except Exception as e:
+                            st.error(f"Failed to plot Fetkovich Log-Log: {str(e)}")
+                            logger.error(f"Fetkovich Log-Log plotting failed: {str(e)}")
                         
-                        fig_faf = plot_fetkovich_flow_after_flow(fetkovich_points, pr, c, n, mode='color')
-                        if fig_faf is not None and len(fig_faf.axes) > 0:
-                            st.subheader("Flow After Flow Plot")
-                            st.pyplot(fig_faf)
-                            if len(fig_faf.axes) > 0 and len(fig_faf.axes[0].lines) > 0:
-                                try:
-                                    st.download_button(
-                                        label="Download Flow-After-Flow Plot as PNG",
-                                        data=export_plot_to_png(fig_faf),
-                                        file_name="fetkovich_flow_after_flow.png",
-                                        mime="image/png"
-                                    )
-                                except Exception as e:
-                                    st.error(f"Failed to export plot as PNG: {str(e)}")
-                                    logger.error(f"PNG export failed: {str(e)}")
+                        try:
+                            fig_faf = plot_fetkovich_flow_after_flow(fetkovich_points, pr, c, n, mode='color')
+                            if fig_faf is not None and len(fig_faf.axes) > 0:
+                                st.subheader("Flow After Flow Plot")
+                                st.pyplot(fig_faf)
+                                if len(fig_faf.axes) > 0 and len(fig_faf.axes[0].lines) > 0:
+                                    try:
+                                        st.download_button(
+                                            label="Download Flow-After-Flow Plot as PNG",
+                                            data=export_plot_to_png(fig_faf),
+                                            file_name="fetkovich_flow_after_flow.png",
+                                            mime="image/png"
+                                        )
+                                    except Exception as e:
+                                        st.error(f"Failed to export plot as PNG: {str(e)}")
+                                        logger.error(f"PNG export failed: {str(e)}")
+                        except Exception as e:
+                            st.error(f"Failed to plot Flow-After-Flow: {str(e)}")
+                            logger.error(f"Flow-After-Flow plotting failed: {str(e)}")
                 
                 except ValueError as e:
                     st.error(f"Calculation failed: {str(e)}")
