@@ -15,7 +15,6 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
     Calculate depths (y1, y2) and pressure (p2) based on polynomial interpolation.
     Returns (y1, y2, p2, coeffs, interpolation_status, glr1, glr2) or (None, ...) if invalid.
     """
-    # Validate inputs
     if not validate_conduit_size(conduit_size):
         logger.error("Invalid conduit size in calculate_results.")
         return None, None, None, None, None, None, None
@@ -23,13 +22,11 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
         logger.error("Invalid production rate in calculate_results.")
         return None, None, None, None, None, None, None
 
-    # Find closest production rates for interpolation
     lower_prate = max([pr for pr in PRODUCTION_RATES if pr <= production_rate], default=50)
     higher_prate = min([pr for pr in PRODUCTION_RATES if pr >= production_rate], default=600)
     production_interpolation_status = "exact" if abs(lower_prate - higher_prate) < 1e-6 else "interpolated"
     prate1, prate2 = lower_prate, higher_prate
 
-    # Validate GLR for both production rates
     valid_glr1, valid_range1 = False, None
     ranges1 = INTERPOLATION_RANGES.get((conduit_size, prate1), [])
     for min_glr, max_glr in ranges1:
@@ -50,7 +47,6 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
         logger.error(f"GLR {glr_input} outside valid ranges for conduit {conduit_size}, production {prate2}.")
         return None, None, None, None, None, None, None
 
-    # Check for extrapolation risks
     if valid_glr1 and (glr_input < valid_range1[0] * 1.05 or glr_input > valid_range1[1] * 0.95):
         logger.warning(f"GLR {glr_input} is near edge of range {valid_range1} for production {prate1}.")
     if valid_glr2 and (glr_input < valid_range2[0] * 1.05 or glr_input > valid_range2[1] * 0.95):
@@ -61,14 +57,12 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
         Get polynomial coefficients by interpolating between GLR values.
         Returns (coeffs, glr1, glr2, status) or (None, ...) if invalid.
         """
-        # Check for exact match
         for entry in data_ref:
             if (abs(entry['conduit_size'] - conduit_size) < 1e-6 and
                 abs(entry['production_rate'] - production_rate) < 1e-6 and
                 abs(entry['glr'] - glr_input) < 1e-6):
                 return entry['coefficients'], glr_input, glr_input, "exact"
 
-        # Find rows for interpolation
         relevant_rows = [
             entry for entry in data_ref
             if (abs(entry['conduit_size'] - conduit_size) < 1e-6 and
@@ -103,7 +97,6 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
         }
         return coeffs, glr1, glr2, "interpolated"
 
-    # Get coefficients for both production rates
     coeffs1, glr1_lower, glr1_higher, glr_status1 = get_coefficients(conduit_size, prate1, glr_input, valid_range1, data_ref)
     if coeffs1 is None:
         return None, None, None, None, None, None, None
@@ -127,7 +120,6 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
         glr2 = glr2_higher if glr_status2 == "exact" else max(glr2_lower, glr2_higher)
         interpolation_status = "interpolated" if glr_status1 == "interpolated" or glr_status2 == "interpolated" else "exact"
 
-    # Calculate y1
     y1 = polynomial(p1, coeffs)
     if not np.isfinite(y1) or y1 < 0 or y1 > 31000:
         logger.error(f"Computed y1 ({y1:.2f} ft) is invalid or outside range 0 to 31000 ft.")
@@ -139,7 +131,6 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
         D_adjusted = y2 - y1
         logger.info(f"Adjusted y2 to {y2:.2f} ft, D_adjusted = {D_adjusted:.2f} ft to stay within 31000 ft.")
 
-    # Find p2 using robust root-finding
     def root_function(x, target_depth, coeffs):
         return polynomial(x, coeffs) - target_depth
 
@@ -177,21 +168,30 @@ def calculate_tpr_points(conduit_size, glr, D, pwh, data_ref):
     Returns list of (production_rate, p2) tuples.
     """
     if not validate_conduit_size(conduit_size):
+        logger.error("Invalid conduit size.")
         raise ValueError("Invalid conduit size.")
     if not validate_glr(conduit_size, PRODUCTION_RATES[0], glr):
-        raise ValueError(f"GLR {glr} is invalid for conduit size {conduit_size}.")
+        logger.error(f"GLR {glr} is invalid for conduit size {conduit_size}.")
+        raise ValueError(f"Invalid GLR {glr}.")
     tpr_points = []
     for prate in PRODUCTION_RATES:
-        result = calculate_results(conduit_size, prate, glr, pwh, D, data_ref)
-        if result[0] is None:
-            logger.warning(f"Failed to compute p2 for production rate {prate} stb/day.")
+        try:
+            result = calculate_results(conduit_size, prate, glr, pwh, D, data_ref)
+            if result[0] is not None:
+                y1, y2, p2, coeffs, interpolation_status, glr1, glr2 = result
+                if np.isfinite(p2) and 0 <= p2 <= 4000:
+                    tpr_points.append((prate, p2))
+                else:
+                    logger.warning(f"Invalid p2 ({p2:.2f} psi) for production rate {prate} stb/day.")
+            else:
+                logger.warning(f"Failed to compute p2 for production rate {prate} stb/day.")
+        except Exception as e:
+            logger.warning(f"Error computing TPR point for production rate {prate}: {str(e)}")
             continue
-        y1, y2, p2, coeffs, interpolation_status, glr1, glr2 = result
-        tpr_points.append((prate, p2))
     if not tpr_points:
         logger.error("No valid TPR points computed.")
         raise ValueError("No valid TPR points computed.")
-    logger.info(f"TPR points: {tpr_points}")
+    logger.info(f"Generated {len(tpr_points)} TPR points: {tpr_points}")
     return tpr_points
 
 @st.cache_data
@@ -202,25 +202,18 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
     Returns (c, n, ipr_points, fetkovich_points).
     """
     points = []
-    if q01 is not None and pwf1 is not None and q01 > 0 and pwf1 > 0:
-        points.append((q01, pwf1))
-    if q02 is not None and pwf2 is not None and q02 > 0 and pwf2 > 0:
-        points.append((q02, pwf2))
-    if q03 is not None and pwf3 is not None and q03 > 0 and pwf3 > 0:
-        points.append((q03, pwf3))
-    if q04 is not None and pwf4 is not None and q04 > 0 and pwf4 > 0:
-        points.append((q04, pwf4))
-
+    for q, pwf in [(q01, pwf1), (q02, pwf2), (q03, pwf3), (q04, pwf4)]:
+        if q is not None and pwf is not None and np.isfinite(q) and np.isfinite(pwf) and q > 0 and pwf >= 0 and pwf <= pr:
+            points.append((q, pwf))
+    
     if c is not None and n is not None:
-        # Validate provided c and n
         if c <= 0 or not np.isfinite(c) or n <= 0 or n > 2.0 or not np.isfinite(n):
             logger.error(f"Invalid Fetkovich parameters: C={c}, n={n}.")
             raise ValueError(f"Invalid Fetkovich parameters: C={c}, n={n}")
     else:
-        # Calculate c and n from points
         if len(points) < 2:
-            logger.error("At least two valid points required for Fetkovich parameters.")
-            raise ValueError("Insufficient valid points for Fetkovich calculation.")
+            logger.error(f"Insufficient valid points for Fetkovich calculation: {len(points)} points provided.")
+            raise ValueError("At least two valid points required for Fetkovich parameters.")
         
         if len(points) == 2:
             q01, pwf1 = points[0]
@@ -252,12 +245,11 @@ def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, p
             logger.error(f"Invalid Fetkovich parameters: C={c}, n={n}.")
             raise ValueError(f"Invalid Fetkovich parameters: C={c}, n={n}")
 
-    # Generate IPR points with consistent range
-    pwf_values = np.linspace(0, pr, 50)  # Increased points for smoother curve
+    pwf_values = np.linspace(0, pr, 50)
     ipr_points = []
     for pwf in pwf_values:
         q0 = c * (pr**2 - pwf**2)**n
-        if np.isfinite(q0) and q0 >= 0:
+        if np.isfinite(q0) and 0 <= q0 <= 1000:
             ipr_points.append((q0, pwf))
     if len(ipr_points) < 2:
         logger.error("Insufficient valid IPR points for Fetkovich.")
@@ -272,7 +264,7 @@ def calculate_ipr_vogel(pr, q_max):
     Calculate IPR points using Vogel method.
     Returns (q_max, ipr_points).
     """
-    pwf_values = np.linspace(0, pr, 50)  # Consistent with Fetkovich
+    pwf_values = np.linspace(0, pr, 50)
     ipr_points = []
     for pwf in pwf_values:
         q0 = q_max * (1 - 0.2 * (pwf / pr) - 0.8 * (pwf / pr)**2)
@@ -290,7 +282,7 @@ def calculate_ipr_composite(pr, j_star, p_b):
     Calculate IPR points using Composite method.
     Returns (j_star, p_b, ipr_points).
     """
-    pwf_values = np.linspace(0, pr, 50)  # Consistent with Fetkovich
+    pwf_values = np.linspace(0, pr, 50)
     ipr_points = []
     for pwf in pwf_values:
         if pwf > p_b:
@@ -311,12 +303,10 @@ def find_intersection(tpr_points, ipr_points, pr):
     Find intersection between TPR and IPR curves using interpolation.
     Returns (intersection_q0, intersection_p) or (None, None) if no valid intersection.
     """
-    # Validate input points
     if not tpr_points or not ipr_points:
         logger.error("Empty TPR or IPR points provided.")
         return None, None
 
-    # Filter valid points and ensure finite values
     tpr_points = [(q, p) for q, p in tpr_points if np.isfinite(q) and np.isfinite(p) and q >= 0 and p >= 0]
     ipr_points = [(q, p) for q, p in ipr_points if np.isfinite(q) and np.isfinite(p) and q >= 0 and p >= 0]
     
@@ -328,7 +318,6 @@ def find_intersection(tpr_points, ipr_points, pr):
         tpr_q0, tpr_p2 = zip(*tpr_points)
         ipr_q0, ipr_pwf = zip(*ipr_points)
         
-        # Ensure arrays are sorted by q0
         tpr_indices = np.argsort(tpr_q0)
         tpr_q0 = np.array(tpr_q0)[tpr_indices]
         tpr_p2 = np.array(tpr_p2)[tpr_indices]
@@ -337,16 +326,13 @@ def find_intersection(tpr_points, ipr_points, pr):
         ipr_q0 = np.array(ipr_q0)[ipr_indices]
         ipr_pwf = np.array(ipr_pwf)[ipr_indices]
 
-        # Log array lengths for debugging
         logger.info(f"TPR points: {len(tpr_points)}, IPR points: {len(ipr_points)}")
         logger.debug(f"TPR q0: {tpr_q0.tolist()}, TPR p2: {tpr_p2.tolist()}")
         logger.debug(f"IPR q0: {ipr_q0.tolist()}, IPR pwf: {ipr_pwf.tolist()}")
 
-        # Create interpolation functions
         tpr_interp = interp1d(tpr_q0, tpr_p2, kind='linear', fill_value='extrapolate')
         ipr_interp = interp1d(ipr_q0, ipr_pwf, kind='linear', fill_value='extrapolate')
 
-        # Define difference function
         def diff_func(q):
             try:
                 return ipr_interp(q) - tpr_interp(q)
@@ -354,7 +340,6 @@ def find_intersection(tpr_points, ipr_points, pr):
                 logger.debug(f"Intersection function error at q={q}: {str(e)}")
                 return np.inf
 
-        # Determine valid intersection range
         q_min = max(min(tpr_q0), min(ipr_q0))
         q_max = min(max(tpr_q0), max(ipr_q0))
         
@@ -362,7 +347,6 @@ def find_intersection(tpr_points, ipr_points, pr):
             logger.warning(f"No valid intersection range: Q0 from {q_min:.2f} to {q_max:.2f}. Check TPR and IPR points.")
             return None, None
 
-        # Check for sign change
         f_min = diff_func(q_min)
         f_max = diff_func(q_max)
         if not (np.isfinite(f_min) and np.isfinite(f_max)):
@@ -373,13 +357,11 @@ def find_intersection(tpr_points, ipr_points, pr):
             logger.warning(f"No sign change detected: f_min={f_min:.2f}, f_max={f_max:.2f}")
             return None, None
 
-        # Find intersection
         try:
             result = root_scalar(diff_func, bracket=[q_min, q_max], method='brentq')
             intersection_q0 = result.root if result.converged else None
             if intersection_q0 is not None:
                 intersection_p = ipr_interp(intersection_q0)
-                # Validate intersection
                 if (0 <= intersection_q0 <= 750 and
                     0 <= intersection_p <= max(pr, 4000) and
                     abs(ipr_interp(intersection_q0) - tpr_interp(intersection_q0)) < 1.0):
