@@ -156,7 +156,7 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                         st.session_state.p2_finder_results = {
                             'y1': y1, 'y2': y2, 'p2': p2, 'coeffs': coeffs,
                             'interpolation_status': interpolation_status,
-                            'glr_input': glr, 'production_rate': production_rate
+                            'glr1': glr1, 'glr2': glr2
                         }
                         
                         try:
@@ -187,6 +187,29 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                         except Exception as e:
                             st.error(f"Failed to plot results: {str(e)}")
                             logger.error(f"p2 Finder plotting failed: {str(e)}")
+                        
+                        # Export results to Excel
+                        try:
+                            excel_data, filename = export_results_to_excel(
+                                mode="p2_finder",
+                                results=st.session_state.p2_finder_results,
+                                inputs={
+                                    'conduit_size': conduit_size,
+                                    'production_rate': production_rate,
+                                    'glr': glr,
+                                    'p1': p1,
+                                    'D': D
+                                }
+                            )
+                            st.download_button(
+                                label="Download Results as Excel",
+                                data=excel_data,
+                                file_name=filename,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                        except Exception as e:
+                            st.error(f"Failed to export results to Excel: {str(e)}")
+                            logger.error(f"p2 Finder Excel export failed: {str(e)}")
                 except Exception as e:
                     st.error(f"Calculation failed: {str(e)}")
                     logger.error(f"p2 Finder calculation failed: {str(e)}")
@@ -603,19 +626,38 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     
                     # Export results to Excel
                     try:
-                        if 'natural_flow_results' in st.session_state:
-                            excel_data = export_results_to_excel(
-                                st.session_state.natural_flow_results,
-                                conduit_size,
-                                production_rate,
-                                glr
-                            )
-                            st.download_button(
-                                label="Download Results as Excel",
-                                data=excel_data,
-                                file_name="natural_flow_results.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
+                        excel_data, filename = export_results_to_excel(
+                            mode="natural_flow",
+                            results={
+                                'tpr_points': tpr_points,
+                                'ipr_points': ipr_points,
+                                'intersection_q0': intersection_q0,
+                                'intersection_p': intersection_p,
+                                'ipr_params': ipr_params
+                            },
+                            inputs={
+                                'conduit_size': conduit_size,
+                                'production_rate': production_rate,
+                                'glr': glr,
+                                'pwh': pwh,
+                                'D': D,
+                                'pr': pr,
+                                'ipr_method': ipr_method,
+                                'fetkovich_input_method': fetkovich_input_method if ipr_method == "Fetkovich" else None,
+                                'c': c if ipr_method == "Fetkovich" and fetkovich_input_method == "Direct" else None,
+                                'n': n if ipr_method == "Fetkovich" and fetkovich_input_method == "Direct" else None,
+                                'q01': q01 if ipr_method == "Fetkovich" and fetkovich_input_method == "Points" else None,
+                                'pwf1': pwf1 if ipr_method == "Fetkovich" and fetkovich_input_method == "Points" else None,
+                                'q02': q02 if ipr_method == "Fetkovich" and fetkovich_input_method == "Points" else None,
+                                'pwf2': pwf2 if ipr_method == "Fetkovich" and fetkovich_input_method == "Points" else None
+                            }
+                        )
+                        st.download_button(
+                            label="Download Results as Excel",
+                            data=excel_data,
+                            file_name=filename,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
                     except Exception as e:
                         st.error(f"Failed to export results to Excel: {str(e)}")
                         logger.error(f"Excel export failed: {str(e)}")
@@ -680,6 +722,8 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
             else:
                 try:
                     fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
+                    # Placeholder: Assume plot_glr_graphs returns (fig, glr_data)
+                    glr_data = [...]  # Replace with actual glr_data from plot_glr_graphs
                     if fig is not None:
                         st.subheader("GLR Pressure vs Depth Curves")
                         st.pyplot(fig)
@@ -700,6 +744,26 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                     else:
                         st.error("Failed to generate GLR plot.")
                         logger.error("GLR plot returned None")
+                    
+                    # Export results to Excel
+                    try:
+                        excel_data, filename = export_results_to_excel(
+                            mode="glr_curves",
+                            results={'glr_data': glr_data},
+                            inputs={
+                                'conduit_size': conduit_size,
+                                'production_rate': production_rate
+                            }
+                        )
+                        st.download_button(
+                            label="Download GLR Curves as Excel",
+                            data=excel_data,
+                            file_name=filename,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    except Exception as e:
+                        st.error(f"Failed to export GLR curves to Excel: {str(e)}")
+                        logger.error(f"GLR curves Excel export failed: {str(e)}")
                 except Exception as e:
                     st.error(f"Failed to plot GLR curves: {str(e)}")
                     logger.error(f"GLR plotting failed: {str(e)}")
@@ -716,6 +780,10 @@ def main():
     reference_data = [...]  # Assume reference data is loaded
     interpolation_ranges = {...}  # Assume interpolation ranges are loaded
     production_rates = [50, 100, 200, 300, 400, 500, 600]
+    
+    # Debug button for REFERENCE_DATA
+    if st.button("Debug REFERENCE_DATA"):
+        st.write(st.session_state.get('REFERENCE_DATA', "REFERENCE_DATA not found in session_state"))
     
     tab1, tab2, tab3 = st.tabs(["p2 Finder", "Natural Flow Finder", "GLR Curves"])
     
