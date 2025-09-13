@@ -86,7 +86,8 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
     ax.yaxis.set_minor_locator(plt.MultipleLocator(200))
     ax.xaxis.set_label_position('top')
     ax.xaxis.set_ticks_position('top')
-    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8, frameon=True, edgecolor='black')
+    ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.3), fontsize=8, frameon=True, edgecolor='black', ncol=1)
+    plt.tight_layout()
     fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     
