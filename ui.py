@@ -12,69 +12,31 @@ from config import COLORS
 # Initialize logger
 logger = setup_logging()
 
-# ---------------- DEFINE THEME FUNCTION FIRST ----------------
 def apply_theme():
     """Apply dark or light theme based on session state."""
-    theme = st.session_state.get("theme", "light")
-
-    if theme == "dark":
-        st.markdown(
-            """
+    if st.session_state.get('theme', 'light') == 'dark':
+        st.markdown("""
             <style>
                 .stApp {
                     background-color: #1e1e1e;
                     color: #ffffff;
                 }
-                input, select, textarea {
-                    background-color: #333333 !important;
-                    color: #ffffff !important;
+                .stTextInput > div > div > input, .stSelectbox > div > div > select {
+                    background-color: #333333;
+                    color: #ffffff;
                 }
                 .stButton > button {
-                    background-color: #4CAF50 !important;
-                    color: white !important;
+                    background-color: #4CAF50;
+                    color: white;
                 }
             </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        return "plotly_dark"
-
-    else:
-        st.markdown(
-            """
-            <style>
-                .stApp {
-                    background-color: #ffffff;
-                    color: #000000;
-                }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        return "plotly_white"
-
-
-# ---------------- THEME TOGGLE ----------------
-if "theme" not in st.session_state:
-    st.session_state.theme = "light"
-
-# Three-column layout so button is always on the right
-col1, col2, col3 = st.columns([8, 1, 1])
-with col3:
-    if st.button("🌙" if st.session_state.theme == "light" else "☀️"):
-        st.session_state.theme = (
-            "dark" if st.session_state.theme == "light" else "light"
-        )
-        st.rerun()
-
-# Always apply theme after possible toggle
-plotly_theme = apply_theme()
-# ------------------------------------------------
+        """, unsafe_allow_html=True)
+        return 'plotly_dark'
+    return 'plotly_white'
 
 def run_p2_finder(reference_data, interpolation_ranges, production_rates):
     """UI for p2 Finder: Calculate wellhead and bottomhole pressures and depths."""
     logger.info("Running p2 Finder UI")
-
     
     # Initialize session state for inputs
     if 'p2_finder_inputs' not in st.session_state:
@@ -202,7 +164,7 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                     
                     fig = plot_results(
                         p1, y1, y2, p2, D, coeffs, glr, interpolation_status, production_rate,
-                        mode=plotly_theme
+                        mode='color'
                     )
                     st.subheader("Pressure vs Depth Plot")
                     st.pyplot(fig)
@@ -503,7 +465,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     ipr_params_str = f'Pr: {pr} psi, Params: {ipr_method}'
                     fig = plot_curves(
                         tpr_points, ipr_points, intersection_q0, intersection_p, conduit_size, glr, D, pwh, pr, ipr_params_str,
-                        mode=plotly_theme
+                        mode='color'
                     )
                     st.subheader("TPR and IPR Curves (Intersection indicates Point of Natural Flow)")
                     st.pyplot(fig)
@@ -524,7 +486,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         st.warning("Plot is empty - cannot export.")
                     
                     if ipr_method == "Fetkovich" and fetkovich_points:
-                        fig_log = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode=plotly_theme)
+                        fig_log = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode='color')
                         if fig_log is not None and len(fig_log.axes) > 0:
                             st.subheader("Fetkovich Log-Log Plot")
                             st.pyplot(fig_log)
