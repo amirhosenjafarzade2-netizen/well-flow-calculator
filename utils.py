@@ -38,7 +38,7 @@ def setup_logging():
 def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersection_p):
     """
     Export TPR, IPR, and intersection results to an Excel file.
-    Returns bytes for Streamlit download. Creates a minimal file if inputs are invalid.
+    Returns bytes for Streamlit download. Handles mismatched lengths by padding with None.
     """
     logger = setup_logging()
     logger.info(f"Exporting to Excel: tpr_points={tpr_points}, ipr_points={ipr_points}, "
@@ -95,7 +95,30 @@ def export_results_to_excel(tpr_points, ipr_points, intersection_q0, intersectio
         valid_intersection_p = [intersection_p] if (intersection_p is not None and
                                                    np.isfinite(intersection_p)) else []
         
-        # Create DataFrame with available data
+        # Log lengths of all lists
+        logger.info(f"List lengths: TPR_Q0={len(valid_tpr_q0)}, TPR_P2={len(valid_tpr_p2)}, "
+                    f"IPR_Q0={len(valid_ipr_q0)}, IPR_Pwf={len(valid_ipr_pwf)}, "
+                    f"Intersection_Q0={len(valid_intersection_q0)}, Intersection_P={len(valid_intersection_p)}")
+        
+        # Determine maximum length for DataFrame
+        max_length = max(
+            len(valid_tpr_q0),
+            len(valid_tpr_p2),
+            len(valid_ipr_q0),
+            len(valid_ipr_pwf),
+            len(valid_intersection_q0) or 1,  # Ensure at least 1 to avoid empty DataFrame
+            len(valid_intersection_p) or 1
+        )
+        
+        # Pad lists with None to match max_length
+        valid_tpr_q0 += [None] * (max_length - len(valid_tpr_q0))
+        valid_tpr_p2 += [None] * (max_length - len(valid_tpr_p2))
+        valid_ipr_q0 += [None] * (max_length - len(valid_ipr_q0))
+        valid_ipr_pwf += [None] * (max_length - len(valid_ipr_pwf))
+        valid_intersection_q0 += [None] * (max_length - len(valid_intersection_q0))
+        valid_intersection_p += [None] * (max_length - len(valid_intersection_p))
+        
+        # Create DataFrame
         df = pd.DataFrame({
             'TPR_Q0': valid_tpr_q0,
             'TPR_P2': valid_tpr_p2,
