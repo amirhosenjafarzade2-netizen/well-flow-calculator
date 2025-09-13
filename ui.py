@@ -13,54 +13,62 @@ from config import COLORS
 logger = setup_logging()
 
 # ---------------- DEFINE THEME FUNCTION FIRST ----------------
-# ---------------- DEFINE THEME FUNCTION FIRST ----------------
 def apply_theme():
     """Apply dark or light theme based on session state."""
-    theme = st.session_state.get('theme', 'light')
-    
-    if theme == 'dark':
-        st.markdown("""
+    theme = st.session_state.get("theme", "light")
+
+    if theme == "dark":
+        st.markdown(
+            """
             <style>
                 .stApp {
                     background-color: #1e1e1e;
                     color: #ffffff;
                 }
-                .stTextInput > div > div > input, 
-                .stSelectbox > div > div > select {
-                    background-color: #333333;
-                    color: #ffffff;
+                input, select, textarea {
+                    background-color: #333333 !important;
+                    color: #ffffff !important;
                 }
                 .stButton > button {
-                    background-color: #4CAF50;
-                    color: white;
+                    background-color: #4CAF50 !important;
+                    color: white !important;
                 }
             </style>
-        """, unsafe_allow_html=True)
-        return 'plotly_dark'
+            """,
+            unsafe_allow_html=True,
+        )
+        return "plotly_dark"
+
     else:
-        st.markdown("""
+        st.markdown(
+            """
             <style>
                 .stApp {
                     background-color: #ffffff;
                     color: #000000;
                 }
             </style>
-        """, unsafe_allow_html=True)
-        return 'plotly_white'
+            """,
+            unsafe_allow_html=True,
+        )
+        return "plotly_white"
+
 
 # ---------------- THEME TOGGLE ----------------
-if 'theme' not in st.session_state:
-    st.session_state.theme = 'light'
+if "theme" not in st.session_state:
+    st.session_state.theme = "light"
 
-col1, col2 = st.columns([9, 1])
-with col2:
+# Three-column layout so button is always on the right
+col1, col2, col3 = st.columns([8, 1, 1])
+with col3:
     if st.button("🌙" if st.session_state.theme == "light" else "☀️"):
-        st.session_state.theme = 'dark' if st.session_state.theme == 'light' else 'light'
+        st.session_state.theme = (
+            "dark" if st.session_state.theme == "light" else "light"
+        )
         st.rerun()
 
 # Always apply theme after possible toggle
 plotly_theme = apply_theme()
-
 # ------------------------------------------------
 
 def run_p2_finder(reference_data, interpolation_ranges, production_rates):
