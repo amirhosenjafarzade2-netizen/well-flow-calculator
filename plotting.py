@@ -75,7 +75,6 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
     ax.set_xlim(0, 4000)
     ax.set_ylim(0, 31000)
     ax.invert_yaxis()
-    # Fix tilt: Add symmetric padding
     ax.margins(x=0.05, y=0.05)
     grid_color = '#D3D3D3' if mode == 'color' else 'black'
     ax.grid(True, which='major', color=grid_color)
@@ -91,7 +90,6 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
     fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     
-    # Safety check for empty plot
     if len(ax.lines) == 0:
         logger.error("Empty plot in plot_results - closing and returning None")
         plt.close(fig)
@@ -106,61 +104,88 @@ def plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit
     Parameters:
     - tpr_points, ipr_points: Lists of (q0, pressure) tuples
     - intersection_q0, intersection_p: Intersection point
-    - conduit_size: Conduit size
-    - glr: Gas-Liquid Ratio
-    - D: Well length
-    - pwh: Wellhead pressure
-    - pr: Reservoir pressure
+    - conduit_size, glr, D, pwh, pr: Parameters for plot annotation
     - ipr_params: String for IPR parameters
     - mode: 'color' or 'bw' for colorful or black-and-white plots
-    Returns matplotlib figure.
+    Returns matplotlib figure or None if invalid.
     """
     logger.info(f"Plotting TPR/IPR curves: GLR={glr}, conduit_size={conduit_size}, pr={pr:.2f}")
     
-    tpr_q0, tpr_p2 = zip(*tpr_points)
-    ipr_q0, ipr_pwf = zip(*ipr_points)
+    # Filter valid points
+    tpr_points = [(q, p) for q, p in tpr_points if np.isfinite(q) and np.isfinite(p) and q >= 0 and p >= 0]
+    ipr_points = [(q, p) for q, p in ipr_points if np.isfinite(q) and np.isfinite(p) and q >= 0 and p >= 0]
     
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    tpr_color = 'blue' if mode == 'color' else 'black'
-    ax.plot(tpr_q0, tpr_p2, color=tpr_color, marker='o', linewidth=2, label=f'TPR (Conduit: {conduit_size} in, GLR: {glr}, D: {D} ft, Pwh: {pwh} psi)')
-    
-    ipr_color = 'red' if mode == 'color' else 'gray'
-    ax.plot(ipr_q0, ipr_pwf, color=ipr_color, linewidth=2, label=f'IPR ({ipr_params})')
-    
-    if intersection_q0 is not None and intersection_p is not None:
-        intersect_color = 'green' if mode == 'color' else 'black'
-        ax.scatter([intersection_q0], [intersection_p], color=intersect_color, s=100, marker='*',
-                   label=f'Natural Flow Point (Q0: {intersection_q0:.2f} stb/day, P: {intersection_p:.2f} psi)')
-    
-    ax.set_xlabel('Production Rate, Q0 (stb/day)', fontsize=10)
-    ax.set_ylabel('Pressure, psi', fontsize=10)
-    ax.set_xlim(0, 600)
-    ax.set_ylim(0, max(pr, 4000))
-    # Fix tilt: Add symmetric padding
-    ax.margins(x=0.05, y=0.05)
-    grid_color = '#D3D3D3' if mode == 'color' else 'black'
-    ax.grid(True, which='major', color=grid_color)
-    ax.grid(True, which='minor', color=grid_color, linestyle='-', alpha=0.5)
-    ax.xaxis.set_major_locator(plt.MultipleLocator(100))
-    ax.xaxis.set_minor_locator(plt.MultipleLocator(20))
-    ax.yaxis.set_major_locator(plt.MultipleLocator(1000))
-    ax.yaxis.set_minor_locator(plt.MultipleLocator(200))
-    ax.set_title('TPR and IPR Curves with Natural Flow Point')
-    ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.3), fontsize=8, frameon=True, 
-              edgecolor='black', ncol=1)
-    plt.tight_layout()
-    fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
-    ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
-    
-    # Safety check for empty plot
-    if len(ax.lines) == 0:
-        logger.error("Empty plot in plot_curves - closing and returning None")
-        plt.close(fig)
+    if len(tpr_points) < 2 or len(ipr_points) < 2:
+        logger.error(f"Insufficient valid points: TPR={len(tpr_points)}, IPR={len(ipr_points)}")
         return None
     
-    logger.info("TPR/IPR curves plot generated successfully.")
-    return fig
+    try:
+        tpr_q0, tpr_p2 = zip(*tpr_points)
+        ipr_q0, ipr_pwf = zip(*ipr_points)
+        
+        # Ensure arrays are numpy arrays and sorted by q0
+        tpr_q0 = np.array(tpr_q0, dtype=float)
+        tpr_p2 = np.array(tpr_p2, dtype=float)
+        ipr_q0 = np.array(ipr_q0, dtype=float)
+        ipr_pwf = np.array(ipr_pwf, dtype=float)
+        
+        tpr_indices = np.argsort(tpr_q0)
+        ipr_indices = np.argsort(ipr_q0)
+        tpr_q0 = tpr_q0[tpr_indices]
+        tpr_p2 = tpr_p2[tpr_indices]
+        ipr_q0 = ipr_q0[ipr_indices]
+        ipr_pwf = ipr_pwf[ipr_indices]
+        
+        # Log array shapes for debugging
+        logger.debug(f"TPR q0 shape: {tpr_q0.shape}, TPR p2 shape: {tpr_p2.shape}")
+        logger.debug(f"IPR q0 shape: {ipr_q0.shape}, IPR pwf shape: {ipr_pwf.shape}")
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        tpr_color = 'blue' if mode == 'color' else 'black'
+        ax.plot(tpr_q0, tpr_p2, color=tpr_color, marker='o', linewidth=2, 
+                label=f'TPR (Conduit: {conduit_size} in, GLR: {glr}, D: {D} ft, Pwh: {pwh} psi)')
+        
+        ipr_color = 'red' if mode == 'color' else 'gray'
+        ax.plot(ipr_q0, ipr_pwf, color=ipr_color, linewidth=2, 
+                label=f'IPR ({ipr_params})')
+        
+        if intersection_q0 is not None and intersection_p is not None and np.isfinite(intersection_q0) and np.isfinite(intersection_p):
+            intersect_color = 'green' if mode == 'color' else 'black'
+            ax.scatter([intersection_q0], [intersection_p], color=intersect_color, s=100, marker='*',
+                       label=f'Natural Flow Point (Q0: {intersection_q0:.2f} stb/day, P: {intersection_p:.2f} psi)')
+        
+        ax.set_xlabel('Production Rate, Q0 (stb/day)', fontsize=10)
+        ax.set_ylabel('Pressure, psi', fontsize=10)
+        ax.set_xlim(0, max(max(tpr_q0), max(ipr_q0), 600) * 1.1)
+        ax.set_ylim(0, max(max(tpr_p2), max(ipr_pwf), pr, 4000) * 1.1)
+        ax.margins(x=0.05, y=0.05)
+        grid_color = '#D3D3D3' if mode == 'color' else 'black'
+        ax.grid(True, which='major', color=grid_color)
+        ax.grid(True, which='minor', color=grid_color, linestyle='-', alpha=0.5)
+        ax.xaxis.set_major_locator(plt.MultipleLocator(100))
+        ax.xaxis.set_minor_locator(plt.MultipleLocator(20))
+        ax.yaxis.set_major_locator(plt.MultipleLocator(1000))
+        ax.yaxis.set_minor_locator(plt.MultipleLocator(200))
+        ax.set_title('TPR and IPR Curves with Natural Flow Point')
+        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.3), fontsize=8, frameon=True, 
+                  edgecolor='black', ncol=1)
+        plt.tight_layout()
+        fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
+        ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
+        
+        if len(ax.lines) == 0:
+            logger.error("Empty plot in plot_curves - closing and returning None")
+            plt.close(fig)
+            return None
+        
+        logger.info("TPR/IPR curves plot generated successfully.")
+        return fig
+    
+    except Exception as e:
+        logger.error(f"Failed to plot TPR/IPR curves: {str(e)}")
+        plt.close()
+        return None
 
 def plot_fetkovich_log_log(points, pr, c, n, mode='color'):
     """
@@ -178,8 +203,21 @@ def plot_fetkovich_log_log(points, pr, c, n, mode='color'):
         logger.error("No valid points provided for Fetkovich log-log plot.")
         return None
     
+    # Filter valid points
+    points = [(q, p) for q, p in points if np.isfinite(q) and np.isfinite(p) and q > 0 and p >= 0]
+    if not points:
+        logger.error("All Fetkovich points are invalid after filtering.")
+        return None
+    
     q_points, pwf_points = zip(*points)
     delta_p = pr**2 - np.array(pwf_points)**2
+    valid_indices = np.isfinite(delta_p) & (delta_p > 0)
+    if not np.any(valid_indices):
+        logger.error("No valid delta_p values for Fetkovich log-log plot.")
+        return None
+    
+    delta_p = delta_p[valid_indices]
+    q_points = np.array(q_points)[valid_indices]
     x = np.log10(delta_p)
     y = np.log10(q_points)
     
@@ -197,12 +235,10 @@ def plot_fetkovich_log_log(points, pr, c, n, mode='color'):
     ax.grid(True)
     grid_color = '#D3D3D3' if mode == 'color' else 'black'
     ax.grid(True, color=grid_color, alpha=0.5)
-    # Fix tilt: Add symmetric padding
     ax.margins(x=0.05, y=0.05)
     fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     
-    # Safety check for empty plot
     if len(ax.lines) == 0:
         logger.error("Empty plot in plot_fetkovich_log_log - closing and returning None")
         plt.close(fig)
@@ -227,6 +263,12 @@ def plot_fetkovich_flow_after_flow(points, pr, c, n, mode='color'):
         logger.error("No valid points provided for Fetkovich flow-after-flow plot.")
         return None
     
+    # Filter valid points
+    points = [(q, p) for q, p in points if np.isfinite(q) and np.isfinite(p) and q > 0 and p >= 0]
+    if not points:
+        logger.error("All Fetkovich points are invalid after filtering.")
+        return None
+    
     q_points, pwf_points = zip(*points)
     
     def fetkovich_model(pwf, c, n):
@@ -246,12 +288,10 @@ def plot_fetkovich_flow_after_flow(points, pr, c, n, mode='color'):
     ax.grid(True)
     grid_color = '#D3D3D3' if mode == 'color' else 'black'
     ax.grid(True, color=grid_color, alpha=0.5)
-    # Fix tilt: Add symmetric padding
     ax.margins(x=0.05, y=0.05)
     fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     
-    # Safety check for empty plot
     if len(ax.lines) == 0:
         logger.error("Empty plot in plot_fetkovich_flow_after_flow - closing and returning None")
         plt.close(fig)
@@ -272,7 +312,6 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
     """
     logger.info(f"Plotting GLR graphs for conduit={conduit_size}, production_rate={production_rate}, mode={mode}")
     
-    # Filter relevant rows
     relevant_rows = [
         entry for entry in reference_data
         if (abs(entry['conduit_size'] - conduit_size) < 1e-6 and
@@ -283,7 +322,6 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
         logger.warning(f"No data points found for conduit {conduit_size} in, production {production_rate} stb/day.")
         return None
 
-    # Assign colors to GLR values for consistency in colorful mode
     if mode == 'color':
         all_glrs = sorted(set(entry['glr'] for entry in reference_data))
         for i, glr in enumerate(all_glrs):
@@ -293,15 +331,12 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
             GLR_COLOR_MAP[glr] = 'black'
 
     fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
-    # Set background based on mode
     fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
     ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
 
     p1_full = np.linspace(0, 4000, 100)
-
-    # Store label positions to check for overlaps in black-and-white mode
     label_positions = []
-    traces_added = 0  # Counter for safety check
+    traces_added = 0
 
     for entry in relevant_rows:
         glr = entry['glr']
@@ -333,35 +368,26 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
             logger.warning(f"GLR {glr} has insufficient valid points ({len(p_plot)}). Skipping.")
             continue
 
-        # Plot the line
         line_color = GLR_COLOR_MAP[glr]
         label_text = f'GLR {int(glr) if glr.is_integer() else glr}' if mode == 'color' else None
         ax.plot(p_plot, y_plot, color=line_color, linewidth=2.5, 
                 label=label_text)
         traces_added += 1
 
-        # Add end-point label for black-and-white mode
         if mode == 'bw' and p_plot and y_plot:
             label_value = int(glr/100) if (glr/100).is_integer() else glr/100
-            # Start with the last point, offset by 300 units upward
             end_x, end_y = p_plot[-1], y_plot[-1] - 300
-            # Check for overlap with previous labels
             overlap = False
             for prev_x, prev_y in label_positions:
-                # Check if the new label is too close (within 300 units in y-direction)
                 if abs(end_y - prev_y) < 300 and abs(end_x - prev_x) < 100:
                     overlap = True
                     break
             if overlap:
-                # Move up the curve by selecting an earlier point (e.g., 10 points back)
-                index = max(0, len(p_plot) - 11)  # Ensure we don't go out of bounds
+                index = max(0, len(p_plot) - 11)
                 end_x, end_y = p_plot[index], y_plot[index] - 300
-            # Add the label
             ax.text(end_x, end_y, f'{label_value}', fontsize=8, ha='left', va='center')
-            # Store the label position
             label_positions.append((end_x, end_y))
 
-    # Safety check: No traces added
     if traces_added == 0:
         logger.error("No valid curves added to GLR plot - closing and returning None")
         plt.close(fig)
@@ -372,9 +398,7 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
     ax.set_xlim(0, 4000)
     ax.set_ylim(0, 31000)
     ax.invert_yaxis()
-    # Fix tilt: Add symmetric padding
     ax.margins(x=0.05, y=0.05)
-    # Grid lines: weaker black for black-and-white, light gray for colorful
     grid_color = '#D3D3D3' if mode == 'color' else 'black'
     ax.grid(True, which='major', color=grid_color, 
             alpha=0.5 if mode == 'color' else 0.3)
@@ -386,7 +410,6 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
     ax.yaxis.set_minor_locator(plt.MultipleLocator(200))
     ax.xaxis.set_label_position('top')
     ax.xaxis.set_ticks_position('top')
-    # Legend: customized for black-and-white mode
     if mode == 'color':
         ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8, frameon=True, edgecolor='black')
     else:
@@ -394,7 +417,6 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
                  bbox_to_anchor=(1.05, 0.5), fontsize=8, frameon=True, edgecolor='black')
     ax.set_title(f"GLR Curves (Conduit: {conduit_size} in, Production: {production_rate} stb/day)")
     
-    # Final safety check for empty plot
     if len(ax.lines) == 0:
         logger.error("Empty plot after setup in plot_glr_graphs - closing and returning None")
         plt.close(fig)
