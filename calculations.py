@@ -1,419 +1,811 @@
 import streamlit as st
 import numpy as np
-from scipy.optimize import root_scalar, curve_fit, OptimizeWarning
-from scipy.interpolate import interp1d
-from config import INTERPOLATION_RANGES, PRODUCTION_RATES
-from utils import polynomial, setup_logging
-from validators import validate_conduit_size, validate_production_rate, validate_glr, validate_fetkovich_parameters
-import warnings
+from calculations import (calculate_results, calculate_tpr_points, calculate_ipr_fetkovich,
+                         calculate_ipr_vogel, calculate_ipr_composite, find_intersection)
+from plotting import (plot_results, plot_curves, plot_fetkovich_log_log,
+                     plot_fetkovich_flow_after_flow, plot_glr_graphs)
+from validators import (validate_conduit_size, validate_production_rate, validate_glr,
+                       validate_depth_and_pressure, validate_pressure, get_valid_options,
+                       get_valid_glr_range, validate_fetkovich_parameters, validate_fetkovich_points)
+from utils import export_plot_to_png, setup_logging
+from config import COLORS
+from random_point_generator import run_random_point_generator
+from ml_module import run_machine_learning
 
-# Initialize logger
 logger = setup_logging()
 
-@st.cache_data
-def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref):
-    """
-    Calculate depths (y1, y2) and pressure (p2) based on polynomial interpolation.
-    Returns (y1, y2, p2, coeffs, interpolation_status, glr1, glr2) or (None, ...) if invalid.
-    """
-    logger.info(f"calculate_results inputs: conduit_size={conduit_size}, production_rate={production_rate}, "
-                f"glr_input={glr_input}, p1={p1}, D={D}")
+def apply_theme():
+    """Apply dark or light theme based on session state."""
+    if st.session_state.get('theme', 'light') == 'dark':
+        st.markdown("""
+            <style>
+                .stApp {
+                    background-color: #1e1e1e;
+                    color: #ffffff;
+                }
+                .stTextInput > div > div > input, .stSelectbox > div > div > select {
+                    background-color: #333333;
+                    color: #ffffff;
+                }
+                .stButton > button {
+                    background-color: #4CAF50;
+                    color: white;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+        return 'plotly_dark'
+    return 'plotly_white'
+
+def run_p2_finder(reference_data, interpolation_ranges, production_rates):
+    """UI for p2 Finder: Calculate wellhead and bottomhole pressures and depths."""
+    logger.info("Running p2 Finder UI")
     
-    if not validate_conduit_size(conduit_size):
-        logger.error(f"Invalid conduit size: {conduit_size}")
-        return None, None, None, None, None, None, None
-    if not validate_production_rate(production_rate):
-        logger.error(f"Invalid production rate: {production_rate}")
-        return None, None, None, None, None, None, None
-    if not validate_glr(conduit_size, production_rate, glr_input):
-        logger.error(f"Invalid GLR {glr_input} for conduit {conduit_size}, production {production_rate}")
-        return None, None, None, None, None, None, None
-
-    lower_prate = max([pr for pr in PRODUCTION_RATES if pr <= production_rate], default=50)
-    higher_prate = min([pr for pr in PRODUCTION_RATES if pr >= production_rate], default=600)
-    production_interpolation_status = "exact" if abs(lower_prate - higher_prate) < 1e-6 else "interpolated"
-    prate1, prate2 = lower_prate, higher_prate
-    logger.info(f"Production rates for interpolation: prate1={prate1}, prate2={prate2}, status={production_interpolation_status}")
-
-    valid_glr1, valid_range1 = False, None
-    ranges1 = INTERPOLATION_RANGES.get((conduit_size, prate1), [])
-    for min_glr, max_glr in ranges1:
-        if min_glr <= glr_input <= max_glr:
-            valid_glr1, valid_range1 = True, (min_glr, max_glr)
-            break
-    if not valid_glr1:
-        logger.error(f"GLR {glr_input} outside valid ranges {ranges1} for conduit {conduit_size}, production {prate1}")
-        return None, None, None, None, None, None, None
-
-    valid_glr2, valid_range2 = False, None
-    ranges2 = INTERPOLATION_RANGES.get((conduit_size, prate2), [])
-    for min_glr, max_glr in ranges2:
-        if min_glr <= glr_input <= max_glr:
-            valid_glr2, valid_range2 = True, (min_glr, max_glr)
-            break
-    if not valid_glr2:
-        logger.error(f"GLR {glr_input} outside valid ranges {ranges2} for conduit {conduit_size}, production {prate2}")
-        return None, None, None, None, None, None, None
-
-    if valid_glr1 and (glr_input < valid_range1[0] * 1.05 or glr_input > valid_range1[1] * 0.95):
-        logger.warning(f"GLR {glr_input} is near edge of range {valid_range1} for production {prate1}")
-    if valid_glr2 and (glr_input < valid_range2[0] * 1.05 or glr_input > valid_range2[1] * 0.95):
-        logger.warning(f"GLR {glr_input} is near edge of range {valid_range2} for production {prate2}")
-
-    def get_coefficients(conduit_size, production_rate, glr_input, valid_range, data_ref):
-        """
-        Get polynomial coefficients by interpolating between GLR values.
-        Returns (coeffs, glr1, glr2, status) or (None, ...) if invalid.
-        """
-        logger.info(f"get_coefficients: conduit_size={conduit_size}, production_rate={production_rate}, "
-                    f"glr_input={glr_input}, valid_range={valid_range}")
+    if 'p2_finder_inputs' not in st.session_state:
+        st.session_state.p2_finder_inputs = {
+            'conduit_size': 2.875,
+            'production_rate': 100.0,
+            'glr': 200.0,
+            'p1': 1000.0,
+            'D': 1000.0
+        }
+    
+    st.subheader("p2 Finder Inputs")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        valid_conduits = [2.875, 3.5]
+        conduit_size = st.selectbox(
+            "Conduit Size (in):",
+            valid_conduits,
+            index=valid_conduits.index(st.session_state.p2_finder_inputs['conduit_size']),
+            help="Select the conduit size (2.875 or 3.5 inches)."
+        )
+        st.session_state.p2_finder_inputs['conduit_size'] = conduit_size
         
-        # Check for exact match
-        for entry in data_ref:
-            if (abs(entry['conduit_size'] - conduit_size) < 1e-6 and
-                abs(entry['production_rate'] - production_rate) < 1e-6 and
-                abs(entry['glr'] - glr_input) < 1e-6):
-                logger.info(f"Exact match found: coefficients={entry['coefficients']}")
-                return entry['coefficients'], glr_input, glr_input, "exact"
-
-        # Find relevant data points for interpolation
-        relevant_rows = [
-            entry for entry in data_ref
-            if (abs(entry['conduit_size'] - conduit_size) < 1e-6 and
-                abs(entry['production_rate'] - production_rate) < 1e-6 and
-                valid_range[0] <= entry['glr'] <= valid_range[1])
-        ]
-        relevant_rows.sort(key=lambda x: x['glr'])
-        if len(relevant_rows) < 2:
-            logger.error(f"Insufficient data points for interpolation: {len(relevant_rows)} found")
-            return None, None, None, None
-
-        glr1 = max([entry['glr'] for entry in relevant_rows if entry['glr'] <= glr_input], default=valid_range[0])
-        glr2 = min([entry['glr'] for entry in relevant_rows if entry['glr'] >= glr_input], default=valid_range[1])
-        if glr1 == glr2:
-            for entry in relevant_rows:
-                if abs(entry['glr'] - glr1) < 1e-6:
-                    return entry['coefficients'], glr1, glr2, "exact"
-
-        coeffs1 = None
-        coeffs2 = None
-        for entry in relevant_rows:
-            if abs(entry['glr'] - glr1) < 1e-6:
-                coeffs1 = entry['coefficients']
-            if abs(entry['glr'] - glr2) < 1e-6:
-                coeffs2 = entry['coefficients']
-
-        if coeffs1 is None or coeffs2 is None:
-            logger.error(f"Could not find coefficients for glr1={glr1}, glr2={glr2}")
-            return None, None, None, None
-
-        # Linear interpolation of coefficients
-        weight = (glr_input - glr1) / (glr2 - glr1) if glr2 != glr1 else 0
-        coeffs = {}
-        for key in coeffs1:
-            coeffs[key] = coeffs1[key] + weight * (coeffs2[key] - coeffs1[key])
-        logger.info(f"Interpolated coefficients: {coeffs}, glr1={glr1}, glr2={glr2}")
-        return coeffs, glr1, glr2, "interpolated"
-
-    coeffs1, glr1_1, glr1_2, status1 = get_coefficients(conduit_size, prate1, glr_input, valid_range1, data_ref)
-    coeffs2, glr2_1, glr2_2, status2 = get_coefficients(conduit_size, prate2, glr_input, valid_range2, data_ref)
-    
-    if coeffs1 is None or coeffs2 is None:
-        logger.error("Failed to get coefficients for one or both production rates")
-        return None, None, None, None, None, None, None
-
-    try:
-        y1 = polynomial(p1, coeffs1)
-        y2 = polynomial(p1, coeffs2)
-        if not (np.isfinite(y1) and np.isfinite(y2)):
-            logger.error(f"Invalid y1={y1} or y2={y2} from polynomial calculation")
-            return None, None, None, None, None, None, None
-
-        if production_interpolation_status == "exact":
-            coeffs = coeffs1
-            y_final = y1
-            p2 = polynomial(y1 + D, coeffs)
-        else:
-            weight = (production_rate - prate1) / (prate2 - prate1)
-            coeffs = {}
-            for key in coeffs1:
-                coeffs[key] = coeffs1[key] + weight * (coeffs2[key] - coeffs1[key])
-            y_final = y1 + weight * (y2 - y1)
-            p2 = polynomial(y_final + D, coeffs)
-
-        if not np.isfinite(p2):
-            logger.error(f"Invalid p2={p2} from polynomial calculation")
-            return None, None, None, None, None, None, None
-
-        logger.info(f"Calculated: y1={y1:.2f}, y2={y_final:.2f}, p2={p2:.2f}, interpolation_status={production_interpolation_status}")
-        return y1, y_final, p2, coeffs, production_interpolation_status, glr1_1, glr2_1
-    except Exception as e:
-        logger.error(f"Calculation failed: {str(e)}")
-        return None, None, None, None, None, None, None
-
-def calculate_tpr_points(conduit_size, production_rate, glr, pwh, D, data_ref):
-    """
-    Calculate TPR points (Q0, p2) for given inputs.
-    Returns list of (Q0, p2) tuples or None if invalid.
-    """
-    logger.info(f"Calculating TPR points: conduit_size={conduit_size}, production_rate={production_rate}, "
-                f"glr={glr}, pwh={pwh}, D={D}")
-    
-    try:
-        q0_values = np.linspace(0, 1000, 50)
-        tpr_points = []
-        for q0 in q0_values:
-            y1, y2, p2, coeffs, status, glr1, glr2 = calculate_results(conduit_size, q0, glr, pwh, D, data_ref)
-            if p2 is not None and np.isfinite(p2) and 0 <= p2 <= 4000:
-                tpr_points.append((q0, p2))
-        if not tpr_points:
-            logger.error("No valid TPR points calculated")
-            return None
-        logger.info(f"Generated {len(tpr_points)} TPR points")
-        return tpr_points
-    except Exception as e:
-        logger.error(f"TPR calculation failed: {str(e)}")
-        return None
-
-def calculate_ipr_fetkovich(pr, c, n):
-    """
-    Calculate IPR points using Fetkovich model: q0 = c * (pr^2 - pwf^2)^n
-    Returns list of (q0, pwf) tuples or None if invalid.
-    """
-    logger.info(f"Calculating Fetkovich IPR: pr={pr}, c={c}, n={n}")
-    
-    try:
-        if not validate_fetkovich_parameters(c, n):
-            logger.error(f"Invalid Fetkovich parameters: c={c}, n={n}")
-            return None
+        valid_prates, valid_glrs = get_valid_options(conduit_size)
+        valid_prates = [float(pr) for pr in valid_prates]
+        production_rate = st.selectbox(
+            "Production Rate (stb/day):",
+            valid_prates,
+            index=valid_prates.index(st.session_state.p2_finder_inputs['production_rate']) if st.session_state.p2_finder_inputs['production_rate'] in valid_prates else 0,
+            help="Select the production rate (50 to 600 stb/day)."
+        )
+        st.session_state.p2_finder_inputs['production_rate'] = production_rate
         
-        pwf_values = np.linspace(0, pr, 50)
-        ipr_points = []
-        for pwf in pwf_values:
-            delta_p2 = pr**2 - pwf**2
-            if delta_p2 < 0:
-                continue
-            q0 = c * delta_p2 ** n
-            if np.isfinite(q0) and q0 >= 0:
-                ipr_points.append((q0, pwf))
-        if not ipr_points:
-            logger.error("No valid IPR points calculated for Fetkovich model")
-            return None
-        logger.info(f"Generated {len(ipr_points)} Fetkovich IPR points")
-        return ipr_points
-    except Exception as e:
-        logger.error(f"Fetkovich IPR calculation failed: {str(e)}")
-        return None
-
-def fit_fetkovich_parameters(pr, points):
-    """
-    Fit Fetkovich parameters c and n from test points using curve_fit.
-    
-    Parameters:
-    - pr: Reservoir pressure (psi)
-    - points: List of (q0, pwf) tuples
-    
-    Returns:
-    - (c, n) if fit succeeds, else (None, None)
-    """
-    def fetkovich_model(delta_p2, c, n):
-        return c * delta_p2 ** n
-    
-    delta_p2 = []
-    q_data = []
-    for q, pwf in points:
-        delta = pr**2 - pwf**2
-        if delta > 0:
-            delta_p2.append(delta)
-            q_data.append(q)
-    
-    if len(delta_p2) < 2:
-        logger.warning("Insufficient valid delta_p2 points for Fetkovich fit")
-        return None, None
-    
-    delta_p2 = np.array(delta_p2)
-    q_data = np.array(q_data)
-    
-    try:
-        # Suppress warnings for optimization issues
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", OptimizeWarning)
-            popt, _ = curve_fit(
-                fetkovich_model, 
-                delta_p2, 
-                q_data, 
-                p0=[0.001, 0.5],  # Initial guesses
-                bounds=(0, [np.inf, 2]),  # Bounds: c > 0, 0 < n <= 2
-                maxfev=10000  # Increase iterations for convergence
+        valid_glrs_dict = {pr: [float(glr) for glr in glrs] for pr, glrs in valid_glrs.items()}
+        glr_option = st.selectbox(
+            "GLR (scf/stb):",
+            ["Custom"] + valid_glrs_dict.get(production_rate, []),
+            help="Select a valid GLR or enter a custom value."
+        )
+        if glr_option == "Custom":
+            glr = st.number_input(
+                "Custom GLR:",
+                min_value=0.0,
+                value=float(st.session_state.p2_finder_inputs['glr']),
+                step=100.0,
+                help="Enter a custom GLR value (must be within valid ranges)."
             )
-        c, n = popt
-        if not validate_fetkovich_parameters(c, n):
-            return None, None
-        logger.info(f"Fitted Fetkovich parameters: c={c:.6f}, n={n:.2f}")
-        return c, n
-    except Exception as e:
-        logger.error(f"Fetkovich fit failed: {str(e)}")
-        return None, None
-
-def calculate_ipr_vogel(pr, qmax):
-    """
-    Calculate IPR points using Vogel's model: q0 = qmax * (1 - 0.2*(pwf/pr) - 0.8*(pwf/pr)^2)
-    Returns list of (q0, pwf) tuples or None if invalid.
-    """
-    logger.info(f"Calculating Vogel IPR: pr={pr}, qmax={qmax}")
+        else:
+            glr = float(glr_option)
+        st.session_state.p2_finder_inputs['glr'] = glr
     
-    try:
-        if qmax <= 0 or not np.isfinite(qmax):
-            logger.error(f"Invalid qmax: {qmax}")
-            return None
+    with col2:
+        p1 = st.number_input(
+            "Wellhead Pressure, p1 (psi):",
+            min_value=0.0,
+            max_value=4000.0,
+            value=float(st.session_state.p2_finder_inputs['p1']),
+            step=10.0,
+            help="Enter the wellhead pressure (0 to 4000 psi)."
+        )
+        st.session_state.p2_finder_inputs['p1'] = p1
         
-        pwf_values = np.linspace(0, pr, 50)
-        ipr_points = []
-        for pwf in pwf_values:
-            pwf_pr = pwf / pr
-            q0 = qmax * (1 - 0.2 * pwf_pr - 0.8 * pwf_pr**2)
-            if np.isfinite(q0) and q0 >= 0:
-                ipr_points.append((q0, pwf))
-        if not ipr_points:
-            logger.error("No valid IPR points calculated for Vogel model")
-            return None
-        logger.info(f"Generated {len(ipr_points)} Vogel IPR points")
-        return ipr_points
-    except Exception as e:
-        logger.error(f"Vogel IPR calculation failed: {str(e)}")
-        return None
-
-def calculate_ipr_composite(pr, qmax, n):
-    """
-    Calculate IPR points using composite model (Vogel below pr/2, Fetkovich above pr/2).
-    Returns list of (q0, pwf) tuples or None if invalid.
-    """
-    logger.info(f"Calculating Composite IPR: pr={pr}, qmax={qmax}, n={n}")
+        D = st.number_input(
+            "Well Length, D (ft):",
+            min_value=0.0,
+            max_value=31000.0,
+            value=float(st.session_state.p2_finder_inputs['D']),
+            step=100.0,
+            help="Enter the well length (y1 + D ≤ 31000 ft)."
+        )
+        st.session_state.p2_finder_inputs['D'] = D
     
-    try:
-        if qmax <= 0 or not np.isfinite(qmax) or n <= 0 or n > 2 or not np.isfinite(n):
-            logger.error(f"Invalid parameters: qmax={qmax}, n={n}")
-            return None
-        
-        pwf_values = np.linspace(0, pr, 50)
-        ipr_points = []
-        for pwf in pwf_values:
-            if pwf <= pr / 2:
-                # Vogel model
-                pwf_pr = pwf / pr
-                q0 = qmax * (1 - 0.2 * pwf_pr - 0.8 * pwf_pr**2)
+    # Debug: Display D value before calculation
+    st.write(f"**Debug: Input Well Length (D)**: {D:.2f} ft")
+    logger.info(f"p2 Finder: Input D = {D}")
+    
+    calculate = st.button("Calculate p2")
+    
+    if calculate:
+        with st.spinner("Calculating..."):
+            errors = []
+            if not validate_conduit_size(conduit_size):
+                errors.append("Invalid conduit size. Must be 2.875 or 3.5 inches.")
+            if not validate_production_rate(production_rate):
+                errors.append("Invalid production rate. Must be between 50 and 600 stb/day.")
+            if not validate_glr(conduit_size, production_rate, glr):
+                try:
+                    valid_range = get_valid_glr_range(conduit_size, production_rate)
+                    errors.append(f"Invalid GLR. Valid ranges: {valid_range}")
+                    ranges = interpolation_ranges.get((conduit_size, production_rate), [])
+                    if ranges:
+                        min_glr, max_glr = ranges[0]
+                        glr = min(max_glr, max(min_glr, glr))
+                        st.info(f"GLR auto-corrected to {glr:.2f} scf/stb.")
+                except Exception as e:
+                    errors.append(f"Failed to validate GLR: {str(e)}")
+                    logger.error(f"GLR validation error: {str(e)}")
+            if not validate_pressure(p1, "wellhead pressure"):
+                errors.append("Invalid wellhead pressure. Must be between 0 and 4000 psi.")
+            if not validate_depth_and_pressure(0, D):
+                errors.append("Invalid well length. Must be between 0 and 31000 ft.")
+            
+            if errors:
+                for error in errors:
+                    st.error(error)
+                logger.error(f"p2 Finder errors: {errors}")
             else:
-                # Fetkovich model
-                delta_p2 = pr**2 - pwf**2
-                q0 = qmax * (delta_p2 / (pr**2)) ** n
-            if np.isfinite(q0) and q0 >= 0:
-                ipr_points.append((q0, pwf))
-        if not ipr_points:
-            logger.error("No valid IPR points calculated for Composite model")
-            return None
-        logger.info(f"Generated {len(ipr_points)} Composite IPR points")
-        return ipr_points
-    except Exception as e:
-        logger.error(f"Composite IPR calculation failed: {str(e)}")
-        return None
-
-def find_intersection(tpr_points, ipr_points, pr):
-    """
-    Find intersection between TPR and IPR curves using interpolation.
-    Returns (intersection_q0, intersection_p) or (None, None) if no valid intersection.
-    """
-    logger.info(f"find_intersection inputs: tpr_points={tpr_points}, ipr_points={ipr_points}, pr={pr}")
-    if not tpr_points or not ipr_points:
-        logger.error("Empty TPR or IPR points provided")
-        return None, None
-
-    # Filter valid points
-    tpr_points = [(q, p) for q, p in tpr_points if np.isfinite(q) and np.isfinite(p) and q >= 0 and p >= 0]
-    ipr_points = [(q, p) for q, p in ipr_points if np.isfinite(q) and np.isfinite(p) and q >= 0 and p >= 0]
+                try:
+                    # Debug: Log D before passing to calculate_results
+                    logger.info(f"p2 Finder: Passing D = {D} to calculate_results")
+                    result = calculate_results(conduit_size, production_rate, glr, p1, D, reference_data)
+                    if result[0] is None:
+                        st.error("Calculation failed. Please check inputs and try again.")
+                        logger.error("p2 Finder calculation returned None")
+                    else:
+                        y1, y2, p2, coeffs, interpolation_status, glr1, glr2 = result
+                        # Debug: Log calculated y1, y2, and D
+                        st.write(f"**Debug: Calculated y1**: {y1:.2f} ft, **y2**: {y2:.2f} ft, **Input D**: {D:.2f} ft, **y2 - y1**: {(y2 - y1):.2f} ft")
+                        logger.info(f"p2 Finder: y1 = {y1}, y2 = {y2}, Input D = {D}, y2 - y1 = {y2 - y1}")
+                        st.subheader("p2 Finder Results")
+                        st.write(f"**Depth y1**: {y1:.2f} ft")
+                        st.write(f"**Depth y2**: {y2:.2f} ft")
+                        st.write(f"**Bottomhole Pressure p2**: {p2:.2f} psi")
+                        st.write(f"**Interpolation Status**: {interpolation_status}")
+                        st.write(f"**GLR Range**: [{glr1:.2f}, {glr2:.2f}]")
+                        st.session_state.p2_finder_results = {
+                            'y1': y1, 'y2': y2, 'p2': p2, 'coeffs': coeffs,
+                            'interpolation_status': interpolation_status,
+                            'glr1': glr1, 'glr2': glr2
+                        }
+                        
+                        try:
+                            fig = plot_results(
+                                p1, y1, y2, p2, D, coeffs, glr, interpolation_status,
+                                production_rate, mode='color'
+                            )
+                            if fig is not None:
+                                st.subheader("Pressure vs Depth Plot")
+                                st.pyplot(fig)
+                                
+                                if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
+                                    try:
+                                        st.download_button(
+                                            label="Download Plot as PNG",
+                                            data=export_plot_to_png(fig),
+                                            file_name="p2_finder_plot.png",
+                                            mime="image/png"
+                                        )
+                                    except Exception as e:
+                                        st.error(f"Failed to export plot as PNG: {str(e)}")
+                                        logger.error(f"p2 Finder PNG export failed: {str(e)}")
+                                else:
+                                    st.warning("Plot is empty - cannot export.")
+                            else:
+                                st.error("Failed to generate pressure vs depth plot.")
+                                logger.error("p2 Finder plot returned None")
+                        except Exception as e:
+                            st.error(f"Failed to plot results: {str(e)}")
+                            logger.error(f"p2 Finder plotting failed: {str(e)}")
+                except Exception as e:
+                    st.error(f"Calculation failed: {str(e)}")
+                    logger.error(f"p2 Finder calculation failed: {str(e)}")
     
-    if len(tpr_points) < 2 or len(ipr_points) < 2:
-        logger.error(f"Insufficient points: TPR={len(tpr_points)}, IPR={len(ipr_points)}")
-        return None, None
+    st.write("**Calculation Logs**")
+    st.write("Any warnings or informational messages will appear here.")
 
-    try:
-        tpr_q0, tpr_p2 = zip(*tpr_points)
-        ipr_q0, ipr_pwf = zip(*ipr_points)
+def run_natural_flow_finder(reference_data, interpolation_ranges, production_rates):
+    """UI for Natural Flow Finder: Find natural flow rate by intersecting TPR and IPR."""
+    logger.info("Running Natural Flow Finder UI")
+    
+    if 'natural_flow_inputs' not in st.session_state:
+        st.session_state.natural_flow_inputs = {
+            'conduit_size': 2.875,
+            'production_rate': 100.0,
+            'glr': 200.0,
+            'pwh': 1000.0,
+            'D': 1000.0,
+            'pr': 2000.0,
+            'ipr_method': 'Fetkovich',
+            'fetkovich_input_method': 'Direct',
+            'c': 0.0001,
+            'n': 0.5,
+            'q_max': 500.0,
+            'j_star': 0.5,
+            'p_b': 1000.0,
+            'q01': 100.0,
+            'pwf1': 1500.0,
+            'q02': 200.0,
+            'pwf2': 1000.0,
+            'q03': 0.0,
+            'pwf3': 0.0,
+            'q04': 0.0,
+            'pwf4': 0.0
+        }
+    
+    st.subheader("Natural Flow Finder Inputs")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        valid_conduits = [2.875, 3.5]
+        conduit_size = st.selectbox(
+            "Conduit Size (in):",
+            valid_conduits,
+            index=valid_conduits.index(st.session_state.natural_flow_inputs['conduit_size']),
+            key="nf_conduit",
+            help="Select the conduit size (2.875 or 3.5 inches)."
+        )
+        st.session_state.natural_flow_inputs['conduit_size'] = conduit_size
         
-        tpr_q0 = np.array(tpr_q0, dtype=float)
-        tpr_p2 = np.array(tpr_p2, dtype=float)
-        ipr_q0 = np.array(ipr_q0, dtype=float)
-        ipr_pwf = np.array(ipr_pwf, dtype=float)
+        valid_prates, valid_glrs = get_valid_options(conduit_size)
+        valid_prates = [float(pr) for pr in valid_prates]
+        production_rate = st.selectbox(
+            "Production Rate (stb/day):",
+            valid_prates,
+            index=valid_prates.index(st.session_state.natural_flow_inputs['production_rate']) if st.session_state.natural_flow_inputs['production_rate'] in valid_prates else 0,
+            key="nf_prate",
+            help="Select the production rate (50 to 600 stb/day)."
+        )
+        st.session_state.natural_flow_inputs['production_rate'] = production_rate
         
-        # Sort points by q0
-        tpr_indices = np.argsort(tpr_q0)
-        tpr_q0 = tpr_q0[tpr_indices]
-        tpr_p2 = tpr_p2[tpr_indices]
+        valid_glrs_dict = {pr: [float(glr) for glr in glrs] for pr, glrs in valid_glrs.items()}
+        glr_option = st.selectbox(
+            "GLR (scf/stb):",
+            ["Custom"] + valid_glrs_dict.get(production_rate, []),
+            key="nf_glr",
+            help="Select a valid GLR or enter a custom value."
+        )
+        if glr_option == "Custom":
+            glr = st.number_input(
+                "Custom GLR:",
+                min_value=0.0,
+                value=float(st.session_state.natural_flow_inputs['glr']),
+                step=100.0,
+                key="nf_custom_glr",
+                help="Enter a custom GLR value (must be within valid ranges)."
+            )
+        else:
+            glr = float(glr_option)
+        st.session_state.natural_flow_inputs['glr'] = glr
+    
+    with col2:
+        pwh = st.number_input(
+            "Wellhead Pressure, pwh (psi):",
+            min_value=0.0,
+            max_value=4000.0,
+            value=float(st.session_state.natural_flow_inputs['pwh']),
+            step=10.0,
+            help="Enter the wellhead pressure (0 to 4000 psi)."
+        )
+        st.session_state.natural_flow_inputs['pwh'] = pwh
         
-        ipr_indices = np.argsort(ipr_q0)
-        ipr_q0 = ipr_q0[ipr_indices]
-        ipr_pwf = ipr_pwf[ipr_indices]
-
-        logger.info(f"TPR points: {len(tpr_points)}, IPR points: {len(ipr_points)}")
-        logger.debug(f"TPR q0: {tpr_q0.tolist()}, TPR p2: {tpr_p2.tolist()}")
-        logger.debug(f"IPR q0: {ipr_q0.tolist()}, IPR pwf: {ipr_pwf.tolist()}")
-
-        # Determine common q0 range
-        q_min = max(min(tpr_q0), min(ipr_q0))
-        q_max = min(max(tpr_q0), max(ipr_q0))
+        D = st.number_input(
+            "Well Length, D (ft):",
+            min_value=0.0,
+            max_value=31000.0,
+            value=float(st.session_state.natural_flow_inputs['D']),
+            step=100.0,
+            help="Enter the well length (y1 + D ≤ 31000 ft)."
+        )
+        st.session_state.natural_flow_inputs['D'] = D
         
-        if q_min >= q_max:
-            logger.warning(f"No valid intersection range: q_min={q_min:.2f}, q_max={q_max:.2f}")
-            return None, None
+        pr = st.number_input(
+            "Reservoir Pressure, Pr (psi):",
+            min_value=0.0,
+            max_value=4000.0,
+            value=float(st.session_state.natural_flow_inputs['pr']),
+            step=10.0,
+            help="Enter the reservoir pressure (0 to 4000 psi)."
+        )
+        st.session_state.natural_flow_inputs['pr'] = pr
+    
+    st.subheader("IPR Method")
+    ipr_method = st.selectbox(
+        "Select IPR Method:",
+        ["Fetkovich", "Vogel", "Composite"],
+        index=["Fetkovich", "Vogel", "Composite"].index(st.session_state.natural_flow_inputs['ipr_method']),
+        help="Choose the IPR calculation method."
+    )
+    st.session_state.natural_flow_inputs['ipr_method'] = ipr_method
+    
+    c = None
+    n = None
+    q_max = None
+    j_star = None
+    p_b = None
+    q01 = None
+    pwf1 = None
+    q02 = None
+    pwf2 = None
+    q03 = None
+    pwf3 = None
+    q04 = None
+    pwf4 = None
+    
+    if ipr_method == "Fetkovich":
+        st.subheader("Fetkovich Input Method")
+        fetkovich_input_method = st.selectbox(
+            "Select Input Method:",
+            ["Enter C and n directly", "Calculate C and n from points"],
+            index=0 if st.session_state.natural_flow_inputs['fetkovich_input_method'] == 'Direct' else 1,
+            key="fetkovich_input_method",
+            help="Choose whether to enter C and n directly or calculate them from test points."
+        )
+        st.session_state.natural_flow_inputs['fetkovich_input_method'] = 'Direct' if fetkovich_input_method == "Enter C and n directly" else 'Points'
+        
+        if fetkovich_input_method == "Enter C and n directly":
+            col3, col4 = st.columns(2)
+            with col3:
+                c = st.number_input(
+                    "C:",
+                    min_value=0.0,
+                    value=float(st.session_state.natural_flow_inputs['c']),
+                    step=0.00001,
+                    format="%.6f",
+                    help="Fetkovich C parameter (positive value)."
+                )
+            with col4:
+                n = st.number_input(
+                    "n:",
+                    min_value=0.0,
+                    max_value=2.0,
+                    value=float(st.session_state.natural_flow_inputs['n']),
+                    step=0.1,
+                    help="Fetkovich n parameter (0 to 2)."
+                )
+        else:
+            st.write("Enter at least two test points (third and fourth are optional):")
+            col3, col4 = st.columns(2)
+            with col3:
+                q01 = st.number_input(
+                    "Q01 (stb/day):",
+                    min_value=0.0,
+                    value=float(st.session_state.natural_flow_inputs['q01']),
+                    step=10.0,
+                    help="Production rate for first test point."
+                )
+                pwf1 = st.number_input(
+                    "Pwf1 (psi):",
+                    min_value=0.0,
+                    max_value=float(pr),
+                    value=float(st.session_state.natural_flow_inputs['pwf1']),
+                    step=10.0,
+                    help="Flowing bottomhole pressure for first test point."
+                )
+                q03 = st.number_input(
+                    "Q03 (stb/day, optional):",
+                    min_value=0.0,
+                    value=float(st.session_state.natural_flow_inputs['q03']),
+                    step=10.0,
+                    help="Production rate for third test point (optional)."
+                )
+                pwf3 = st.number_input(
+                    "Pwf3 (psi, optional):",
+                    min_value=0.0,
+                    max_value=float(pr),
+                    value=float(st.session_state.natural_flow_inputs['pwf3']),
+                    step=10.0,
+                    help="Flowing bottomhole pressure for third test point (optional)."
+                )
+            with col4:
+                q02 = st.number_input(
+                    "Q02 (stb/day):",
+                    min_value=0.0,
+                    value=float(st.session_state.natural_flow_inputs['q02']),
+                    step=10.0,
+                    help="Production rate for second test point."
+                )
+                pwf2 = st.number_input(
+                    "Pwf2 (psi):",
+                    min_value=0.0,
+                    max_value=float(pr),
+                    value=float(st.session_state.natural_flow_inputs['pwf2']),
+                    step=10.0,
+                    help="Flowing bottomhole pressure for second test point."
+                )
+                q04 = st.number_input(
+                    "Q04 (stb/day, optional):",
+                    min_value=0.0,
+                    value=float(st.session_state.natural_flow_inputs['q04']),
+                    step=10.0,
+                    help="Production rate for fourth test point (optional)."
+                )
+                pwf4 = st.number_input(
+                    "Pwf4 (psi, optional):",
+                    min_value=0.0,
+                    max_value=float(pr),
+                    value=float(st.session_state.natural_flow_inputs['pwf4']),
+                    step=10.0,
+                    help="Flowing bottomhole pressure for fourth test point (optional)."
+                )
+        st.session_state.natural_flow_inputs.update({
+            'c': c if c is not None else 0.0,
+            'n': n if n is not None else 0.0,
+            'q01': q01 if q01 is not None else 0.0,
+            'pwf1': pwf1 if pwf1 is not None else 0.0,
+            'q02': q02 if q02 is not None else 0.0,
+            'pwf2': pwf2 if pwf2 is not None else 0.0,
+            'q03': q03 if q03 is not None else 0.0,
+            'pwf3': pwf3 if pwf3 is not None else 0.0,
+            'q04': q04 if q04 is not None else 0.0,
+            'pwf4': pwf4 if pwf4 is not None else 0.0
+        })
+    elif ipr_method == "Vogel":
+        q_max = st.number_input(
+            "Q_max (stb/day):",
+            min_value=0.0,
+            value=float(st.session_state.natural_flow_inputs['q_max']),
+            step=10.0,
+            help="Maximum production rate for Vogel method."
+        )
+        st.session_state.natural_flow_inputs['q_max'] = q_max
+    elif ipr_method == "Composite":
+        col3, col4 = st.columns(2)
+        with col3:
+            j_star = st.number_input(
+                "J* (stb/day/psi):",
+                min_value=0.0,
+                value=float(st.session_state.natural_flow_inputs['j_star']),
+                step=0.1,
+                help="Productivity index for Composite method."
+            )
+        with col4:
+            p_b = st.number_input(
+                "Bubble Point Pressure, P_b (psi):",
+                min_value=0.0,
+                max_value=float(pr),
+                value=float(st.session_state.natural_flow_inputs['p_b']),
+                step=10.0,
+                help="Bubble point pressure for Composite method."
+            )
+        st.session_state.natural_flow_inputs.update({
+            'j_star': j_star,
+            'p_b': p_b
+        })
+    
+    calculate = st.button("Calculate Natural Flow")
+    
+    if calculate:
+        with st.spinner("Calculating..."):
+            errors = []
+            if not validate_conduit_size(conduit_size):
+                errors.append("Invalid conduit size. Must be 2.875 or 3.5 inches.")
+            if not validate_production_rate(production_rate):
+                errors.append("Invalid production rate. Must be between 50 and 600 stb/day.")
+            if not validate_glr(conduit_size, production_rate, glr):
+                try:
+                    valid_range = get_valid_glr_range(conduit_size, production_rate)
+                    errors.append(f"Invalid GLR. Valid ranges: {valid_range}")
+                    ranges = interpolation_ranges.get((conduit_size, production_rate), [])
+                    if ranges:
+                        min_glr, max_glr = ranges[0]
+                        glr = min(max_glr, max(min_glr, glr))
+                        st.info(f"GLR auto-corrected to {glr:.2f} scf/stb.")
+                except Exception as e:
+                    errors.append(f"Failed to validate GLR: {str(e)}")
+                    logger.error(f"GLR validation error: {str(e)}")
+            if not validate_pressure(pwh, "wellhead pressure"):
+                errors.append("Invalid wellhead pressure. Must be between 0 and 4000 psi.")
+            if not validate_depth_and_pressure(0, D):
+                errors.append("Invalid well length. Must be between 0 and 31000 ft.")
+            if not validate_pressure(pr, "reservoir pressure"):
+                errors.append("Invalid reservoir pressure. Must be between 0 and 4000 psi.")
+            
+            if ipr_method == "Fetkovich" and fetkovich_input_method == "Enter C and n directly":
+                if not validate_fetkovich_parameters(c, n):
+                    errors.append("Invalid Fetkovich parameters: C must be positive, n must be between 0 and 2.")
+            elif ipr_method == "Fetkovich" and fetkovich_input_method == "Calculate C and n from points":
+                points = [(q01, pwf1), (q02, pwf2), (q03, pwf3), (q04, pwf4)]
+                if not validate_fetkovich_points(points, pr):
+                    errors.append("Invalid Fetkovich points: At least two valid points required (Q0 > 0, 0 ≤ Pwf ≤ Pr).")
+            elif ipr_method == "Vogel" and (q_max is None or q_max <= 0):
+                errors.append("Invalid Q_max for Vogel method. Must be positive.")
+            elif ipr_method == "Composite":
+                if j_star is None or j_star <= 0:
+                    errors.append("Invalid J* for Composite method. Must be positive.")
+                if p_b is None or p_b <= 0 or p_b > pr:
+                    errors.append("Invalid P_b for Composite method. Must be between 0 and Pr.")
+            
+            if errors:
+                for error in errors:
+                    st.error(error)
+                logger.error(f"Natural Flow Finder errors: {errors}")
+            else:
+                try:
+                    # Calculate TPR and IPR points
+                    tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, reference_data)
+                    if ipr_method == "Fetkovich":
+                        c, n, ipr_points, fetkovich_points = calculate_ipr_fetkovich(
+                            pr, c, n, q01, pwf1, q02, pwf2, q03, pwf3, q04, pwf4
+                        )
+                        ipr_params = f"C={c:.4e}, n={n:.4f}"
+                    elif ipr_method == "Vogel":
+                        q_max, ipr_points = calculate_ipr_vogel(pr, q_max)
+                        ipr_params = f"Q_max={q_max:.2f}"
+                    else:  # Composite
+                        j_star, p_b, ipr_points = calculate_ipr_composite(pr, j_star, p_b)
+                        ipr_params = f"J*={j_star:.4f}, P_b={p_b:.2f}"
+                    
+                    # Calculate intersection
+                    intersection_q0, intersection_p = find_intersection(tpr_points, ipr_points, pr)
+                    
+                    # Plot TPR/IPR curves with intersection point
+                    try:
+                        fig = plot_curves(
+                            tpr_points, ipr_points, intersection_q0, intersection_p,
+                            conduit_size, glr, D, pwh, pr, ipr_params, mode='color'
+                        )
+                        if fig is not None:
+                            st.subheader("TPR and IPR Curves with Natural Flow Point")
+                            st.pyplot(fig)
+                            
+                            if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
+                                try:
+                                    st.download_button(
+                                        label="Download TPR/IPR Plot as PNG",
+                                        data=export_plot_to_png(fig),
+                                        file_name="tpr_ipr_plot.png",
+                                        mime="image/png"
+                                    )
+                                except Exception as e:
+                                    st.error(f"Failed to export TPR/IPR plot as PNG: {str(e)}")
+                                    logger.error(f"TPR/IPR PNG export failed: {str(e)}")
+                            else:
+                                st.warning("TPR/IPR plot is empty - cannot export.")
+                        else:
+                            st.warning("Failed to generate TPR/IPR plot.")
+                    except Exception as e:
+                        st.warning(f"Failed to plot TPR/IPR curves: {str(e)}")
+                        logger.error(f"TPR/IPR plotting failed: {str(e)}")
+                    
+                    # Plot Fetkovich log-log graph if applicable
+                    if ipr_method == "Fetkovich" and fetkovich_input_method == "Calculate C and n from points":
+                        try:
+                            log_log_fig = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode='color')
+                            if log_log_fig is not None:
+                                st.subheader("Fetkovich Log-Log Plot")
+                                st.pyplot(log_log_fig)
+                                
+                                if len(log_log_fig.axes) > 0 and len(log_log_fig.axes[0].lines) > 0:
+                                    try:
+                                        st.download_button(
+                                            label="Download Log-Log Plot as PNG",
+                                            data=export_plot_to_png(log_log_fig),
+                                            file_name="fetkovich_log_log_plot.png",
+                                            mime="image/png"
+                                        )
+                                    except Exception as e:
+                                        st.error(f"Failed to export log-log plot as PNG: {str(e)}")
+                                        logger.error(f"Log-log PNG export failed: {str(e)}")
+                                else:
+                                    st.warning("Log-log plot is empty - cannot export.")
+                            else:
+                                st.warning("Failed to generate Fetkovich log-log plot.")
+                        except Exception as e:
+                            st.warning(f"Failed to plot Fetkovich log-log graph: {str(e)}")
+                            logger.error(f"Log-log plotting failed: {str(e)}")
+                    
+                    # Display intersection results
+                    st.subheader("Point of Natural Flow Results")
+                    if intersection_q0 is not None and intersection_p is not None:
+                        st.write(f"**Production Rate (Q0)**: {intersection_q0:.2f} stb/day")
+                        st.write(f"**Pressure (P)**: {intersection_p:.2f} psi")
+                        st.session_state.natural_flow_results = {
+                            'intersection_q0': intersection_q0,
+                            'intersection_p': intersection_p,
+                            'tpr_points': tpr_points,
+                            'ipr_points': ipr_points,
+                            'ipr_params': ipr_params
+                        }
+                    else:
+                        st.warning("No valid intersection point found. TPR and IPR curves are plotted above.")
+                        logger.warning("No valid intersection point found")
+                
+                except Exception as e:
+                    st.error(f"Calculation failed: {str(e)}")
+                    logger.error(f"Natural Flow Finder calculation failed: {str(e)}")
+    
+    st.write("**Calculation Logs**")
+    st.write("Any warnings or informational messages will appear here.")
 
-        # Create interpolation functions
-        try:
-            tpr_interp = interp1d(tpr_q0, tpr_p2, kind='linear', fill_value='extrapolate')
-            ipr_interp = interp1d(ipr_q0, ipr_pwf, kind='linear', fill_value='extrapolate')
-        except Exception as e:
-            logger.error(f"Interpolation failed: {str(e)}")
-            return None, None
+def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates):
+    """UI for GLR Curves: Plot pressure vs. depth curves for all GLRs at given conduit size and production rate."""
+    logger.info("Running GLR Graph Drawer UI")
+    
+    if 'glr_graph_inputs' not in st.session_state:
+        st.session_state.glr_graph_inputs = {
+            'conduit_size': 2.875,
+            'production_rate': 100.0
+        }
+    
+    st.subheader("GLR Curves Inputs")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        valid_conduits = [2.875, 3.5]
+        conduit_size = st.selectbox(
+            "Conduit Size (in):",
+            valid_conduits,
+            index=valid_conduits.index(st.session_state.glr_graph_inputs['conduit_size']),
+            key="glr_conduit",
+            help="Select the conduit size (2.875 or 3.5 inches)."
+        )
+        st.session_state.glr_graph_inputs['conduit_size'] = conduit_size
+    
+    with col2:
+        valid_prates, _ = get_valid_options(conduit_size)
+        valid_prates = [float(pr) for pr in valid_prates]
+        production_rate = st.selectbox(
+            "Production Rate (stb/day):",
+            valid_prates,
+            index=valid_prates.index(st.session_state.glr_graph_inputs['production_rate']) if st.session_state.glr_graph_inputs['production_rate'] in valid_prates else 0,
+            key="glr_prate",
+            help="Select the production rate (50 to 600 stb/day)."
+        )
+        st.session_state.glr_graph_inputs['production_rate'] = production_rate
+    
+    plot_glr = st.button("Plot GLR Curves")
+    
+    if plot_glr:
+        with st.spinner("Generating GLR Curves..."):
+            errors = []
+            if not validate_conduit_size(conduit_size):
+                errors.append("Invalid conduit size. Must be 2.875 or 3.5 inches.")
+            if not validate_production_rate(production_rate):
+                errors.append("Invalid production rate. Must be between 50 and 600 stb/day.")
+            
+            if errors:
+                for error in errors:
+                    st.error(error)
+                logger.error(f"GLR Graph Drawer errors: {errors}")
+            else:
+                try:
+                    fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
+                    glr_data = [...]  # Replace with actual glr_data from plot_glr_graphs
+                    if fig is not None:
+                        st.subheader("GLR Pressure vs Depth Curves")
+                        st.pyplot(fig)
+                        
+                        if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
+                            try:
+                                st.download_button(
+                                    label="Download GLR Plot as PNG",
+                                    data=export_plot_to_png(fig),
+                                    file_name="glr_curves.png",
+                                    mime="image/png"
+                                )
+                            except Exception as e:
+                                st.error(f"Failed to export GLR plot as PNG: {str(e)}")
+                                logger.error(f"GLR PNG export failed: {str(e)}")
+                        else:
+                            st.warning("GLR plot is empty - cannot export.")
+                    else:
+                        st.error("Failed to generate GLR plot.")
+                        logger.error("GLR plot returned None")
+                except Exception as e:
+                    st.error(f"Failed to plot GLR curves: {str(e)}")
+                    logger.error(f"GLR plotting failed: {str(e)}")
+    
+    st.write("**Plotting Logs**")
+    st.write("Any warnings or informational messages will appear here.")
 
-        def diff_func(q):
+def run_random_point_generator():
+    """UI for Random Point Generator: Generate random points for testing."""
+    logger.info("Running Random Point Generator UI")
+    
+    st.subheader("Random Point Generator")
+    num_points = st.number_input(
+        "Number of Points to Generate:",
+        min_value=1,
+        max_value=1000,
+        value=10,
+        step=1,
+        help="Enter the number of random points to generate."
+    )
+    
+    generate = st.button("Generate Points")
+    
+    if generate:
+        with st.spinner("Generating random points..."):
             try:
-                tpr_val = tpr_interp(q)
-                ipr_val = ipr_interp(q)
-                if not (np.isfinite(tpr_val) and np.isfinite(ipr_val)):
-                    logger.debug(f"Non-finite interpolation at q={q}: tpr_val={tpr_val}, ipr_val={ipr_val}")
-                    return np.inf
-                return ipr_val - tpr_val
-            except Exception as e:
-                logger.debug(f"Intersection function error at q={q}: {str(e)}")
-                return np.inf
-
-        # Check for sign change to ensure intersection exists
-        f_min = diff_func(q_min)
-        f_max = diff_func(q_max)
-        if not (np.isfinite(f_min) and np.isfinite(f_max)):
-            logger.warning(f"Non-finite function values: f_min={f_min}, f_max={f_max}")
-            return None, None
-
-        if f_min * f_max >= 0:
-            logger.warning("No sign change in interpolation function, no intersection found")
-            return None, None
-
-        # Find intersection
-        try:
-            result = root_scalar(diff_func, bracket=[q_min, q_max], method='brentq')
-            if result.converged:
-                intersection_q0 = result.root
-                intersection_p = tpr_interp(intersection_q0)
-                if (0 <= intersection_q0 <= 1000 and 0 <= intersection_p <= pr):
-                    logger.info(f"Intersection found: q0={intersection_q0:.2f}, p={intersection_p:.2f}")
-                    return intersection_q0, intersection_p
+                points = run_random_point_generator(num_points)
+                if points is not None:
+                    st.subheader("Generated Points")
+                    st.write(points)
+                    st.session_state.random_points = points
+                    try:
+                        st.download_button(
+                            label="Download Points as CSV",
+                            data=points.to_csv(index=False),
+                            file_name="random_points.csv",
+                            mime="text/csv"
+                        )
+                    except Exception as e:
+                        st.error(f"Failed to export points as CSV: {str(e)}")
+                        logger.error(f"Random Point Generator CSV export failed: {str(e)}")
                 else:
-                    logger.warning(f"Intersection out of bounds: q0={intersection_q0:.2f}, p={intersection_p:.2f}")
-                    return None, None
-            else:
-                logger.warning("Intersection calculation did not converge")
-                return None, None
-        except Exception as e:
-            logger.warning(f"Intersection calculation failed: {str(e)}")
-            return None, None
-    except Exception as e:
-        logger.error(f"Intersection calculation failed: {str(e)}")
-        return None, None
+                    st.error("Failed to generate random points.")
+                    logger.error("Random Point Generator returned None")
+            except Exception as e:
+                st.error(f"Generation failed: {str(e)}")
+                logger.error(f"Random Point Generator failed: {str(e)}")
+    
+    st.write("**Generation Logs**")
+    st.write("Any warnings or informational messages will appear here.")
+
+def run_machine_learning():
+    """UI for Machine Learning: Train and predict using ML models."""
+    logger.info("Running Machine Learning UI")
+    
+    st.subheader("Machine Learning Model")
+    model_type = st.selectbox(
+        "Select Model Type:",
+        ["Linear Regression", "Random Forest", "Neural Network"],
+        help="Choose the machine learning model to train."
+    )
+    
+    train = st.button("Train Model")
+    
+    if train:
+        with st.spinner("Training model..."):
+            try:
+                model_results = run_machine_learning(model_type)
+                if model_results is not None:
+                    st.subheader("Model Results")
+                    st.write(f"**Model Type**: {model_type}")
+                    st.write(model_results)
+                    st.session_state.ml_results = model_results
+                else:
+                    st.error("Failed to train model.")
+                    logger.error("Machine Learning training returned None")
+            except Exception as e:
+                st.error(f"Training failed: {str(e)}")
+                logger.error(f"Machine Learning training failed: {str(e)}")
+    
+    st.write("**Training Logs**")
+    st.write("Any warnings or informational messages will appear here.")
+
+def main():
+    """Main function to set up the Streamlit app with tabs for different functionalities."""
+    st.title("Well Performance Calculator")
+    apply_theme()
+    
+    # Placeholder for reference data and interpolation ranges
+    reference_data = [...]  # Assume reference data is loaded
+    interpolation_ranges = {...}  # Assume interpolation ranges are loaded
+    production_rates = [50, 100, 200, 300, 400, 500, 600]
+    
+    # Debug button for REFERENCE_DATA
+    if st.button("Debug REFERENCE_DATA"):
+        st.write(reference_data if reference_data else "REFERENCE_DATA is empty")
+    
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["p2 Finder", "Natural Flow Finder", "GLR Curves", "Random Point Generator", "Machine Learning"])
+    
+    with tab1:
+        run_p2_finder(reference_data, interpolation_ranges, production_rates)
+    
+    with tab2:
+        run_natural_flow_finder(reference_data, interpolation_ranges, production_rates)
+    
+    with tab3:
+        run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
+    
+    with tab4:
+        run_random_point_generator()
+    
+    with tab5:
+        run_machine_learning()
+
+if __name__ == "__main__":
+    main()
