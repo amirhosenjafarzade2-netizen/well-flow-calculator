@@ -147,6 +147,105 @@ def train_neural_network(df_ml):
         time.sleep(0.05)  # Smooth progress bar animation
     return model, scaler
 
+def get_valid_glrs(reference_data, conduit_size, production_rate):
+    """
+    Get the list of valid discrete GLR values for the given conduit_size and production_rate.
+    """
+    return sorted([
+        entry['glr'] for entry in reference_data
+        if entry['conduit_size'] == conduit_size and entry['production_rate'] == production_rate
+    ])
+
+def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
+    """
+    Perform sensitivity analysis on the trained neural network model.
+    """
+    st.subheader("Sensitivity Analysis")
+    
+    if model is None or scaler is None or df_ml is None or reference_data is None:
+        st.error("Model, scaler, data, or reference data not available. Please train the model first.")
+        logger.error("Missing model, scaler, df_ml, or reference_data for sensitivity analysis.")
+        return
+    
+    features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
+    
+    # Get base values from df_ml mean
+    base_values = df_ml[features].mean().to_dict()
+    
+    # Select parameters for sensitivity
+    st.write("Select parameters to analyze their impact on predicted pressure gradient (p2).")
+    params_to_vary = st.multiselect(
+        "Parameters to Vary:",
+        features,
+        default=['GLR', 'production_rate'],
+        help="Choose parameters to see their effect on p2."
+    )
+    
+    if not params_to_vary:
+        st.warning("Select at least one parameter to analyze.")
+        logger.warning("No parameters selected for sensitivity analysis.")
+        return
+    
+    n_points = st.number_input(
+        "Number of Points per Parameter:",
+        min_value=10,
+        max_value=100,
+        value=50,
+        step=10,
+        help="Number of points to evaluate for each parameter."
+    )
+    
+    if st.button("Run Sensitivity Analysis"):
+        with st.spinner("Performing sensitivity analysis..."):
+            results = {}
+            for param in params_to_vary:
+                if param in ['conduit_size', 'production_rate', 'GLR']:
+                    # Use valid discrete values from reference_data
+                    if param == 'conduit_size':
+                        param_values = [2.875, 3.5]
+                    elif param == 'production_rate':
+                        param_values = PRODUCTION_RATES
+                    else:  # GLR
+                        conduit = base_values['conduit_size']
+                        prod = base_values['production_rate']
+                        param_values = get_valid_glrs(reference_data, conduit, prod)
+                        if not param_values:
+                            st.warning(f"No valid GLRs for conduit {conduit} in, production {prod} stb/day. Skipping {param}.")
+                            logger.warning(f"No valid GLRs for conduit={conduit}, prod={prod}.")
+                            continue
+                else:
+                    # Continuous parameters
+                    min_val = df_ml[param].min()
+                    max_val = df_ml[param].max()
+                    param_values = np.linspace(min_val, max_val, n_points)
+                
+                X_sens = pd.DataFrame([base_values] * len(param_values))
+                X_sens[param] = param_values
+                X_sens_scaled = scaler.transform(X_sens[features])
+                sens_predictions = model.predict(X_sens_scaled, verbose=0).flatten()
+                results[param] = (param_values, sens_predictions)
+            
+            # Display results
+            for param, (values, predictions) in results.items():
+                fig, ax = plt.subplots(figsize=(8, 5))
+                ax.plot(values, predictions, marker='o', label=f'p2 vs. {param}')
+                ax.set_xlabel(param.capitalize())
+                ax.set_ylabel('Predicted p2 (psi)')
+                ax.set_title(f'Sensitivity of p2 to {param.capitalize()}')
+                ax.grid(True)
+                ax.legend()
+                st.subheader(f"Sensitivity of p2 to {param.capitalize()}")
+                st.pyplot(fig)
+                
+                # Table of results
+                df_results = pd.DataFrame({
+                    param.capitalize(): values,
+                    'Predicted p2': predictions
+                })
+                st.dataframe(df_results)
+                
+        st.success("Sensitivity analysis complete!")
+
 def analyze_parameter_effects(model, scaler, df_ml):
     """
     Generate parameter effect plots matching the main Colab program.
@@ -214,19 +313,16 @@ def analyze_parameter_effects(model, scaler, df_ml):
         st.pyplot(fig)
 
 def get_valid_glr_range(conduit_size, production_rate):
+    """
+    Get the valid GLR range for the given conduit_size and production_rate.
+    """
     ranges = INTERPOLATION_RANGES.get((conduit_size, production_rate), [])
     return min(r[0] for r in ranges) if ranges else 0, max(r[1] for r in ranges) if ranges else 25000
 
-def get_valid_glrs(reference_data, conduit_size, production_rate):
-    """
-    Get the list of valid discrete GLR values for the given conduit_size and production_rate.
-    """
-    return sorted([
-        entry['glr'] for entry in reference_data
-        if entry['conduit_size'] == conduit_size and entry['production_rate'] == production_rate
-    ])
-
 def evaluate_individual(individual, model, scaler):
+    """
+    Evaluate an individual in the genetic algorithm.
+    """
     features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
     conduit_size, production_rate, glr = individual
     input_data = pd.DataFrame([{
@@ -398,6 +494,9 @@ def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_g
     st.pyplot(fig)
 
 def run_machine_learning():
+    """
+    Main function for Machine Learning mode (Mode 5).
+    """
     st.subheader("Mode 5: Machine Learning Analysis")
     
     # Initialize reference_data in session state if not already present
@@ -488,7 +587,7 @@ def run_machine_learning():
     if 'model' in st.session_state and 'reference_data' in st.session_state:
         option = st.selectbox(
             "Choose Analysis Type:",
-            ["Parameter Analysis", "Optimize Conditions"],
+            ["Parameter Analysis", "Optimize Conditions", "Sensitivity Analysis"],
             key="analysis_type_selectbox"
         )
         logger.info(f"Selected analysis type: {option}")
@@ -499,6 +598,9 @@ def run_machine_learning():
             elif option == "Optimize Conditions":
                 logger.info("Running optimization")
                 optimize_neural_network_conditions(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, st.session_state.reference_data, n_generations)
+            elif option == "Sensitivity Analysis":
+                logger.info("Running sensitivity analysis")
+                run_sensitivity_analysis(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, st.session_state.reference_data)
         except Exception as e:
             st.error(f"Error in analysis: {str(e)}")
             logger.error(f"Error in analysis: {str(e)}")
