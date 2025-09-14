@@ -227,13 +227,14 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
                     'line': {'none': True},
                 })
 
-                # Red lines (projections)
+                # Red projection lines
                 chart.add_series({
-                    'name': 'Connecting Line',
+                    'name': 'Projection at p1',
                     'categories': ['ChartData', row_offset, 0, row_offset, 1],
                     'values': ['ChartData', row_offset + 1, 0, row_offset + 1, 1],
                     'line': {'color': 'red', 'width': 1},
                     'marker': {'type': 'none'},
+                    'legend': {'none': True},
                 })
                 chart.add_series({
                     'name': '',
