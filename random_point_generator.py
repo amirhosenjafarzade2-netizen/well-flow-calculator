@@ -156,43 +156,42 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
             else:
                 df_graph = df
             for sheet_num in range(1, min(num_graph_sheets + 1, len(df_graph) + 1)):
-    idx = sheet_num - 1
-    row = df_graph.iloc[idx]
-    sheet_name = f'Data_{sheet_num}'
-    worksheet = workbook.add_worksheet(sheet_name)
-    worksheet.hide()
+                idx = sheet_num - 1
+                row = df_graph.iloc[idx]
+                sheet_name = f'Data_{sheet_num}'
+                worksheet = workbook.add_worksheet(sheet_name)
+                worksheet.hide()
 
-    # Well path (p1,y1 → p2,y2)
-    worksheet.write_row(0, 0, ["p", "y"])
-    worksheet.write_row(1, 0, [row['p1'], row['y1']])
-    worksheet.write_row(2, 0, [row['p2'], row['y2']])
+                # Well path (p1,y1 → p2,y2)
+                worksheet.write_row(0, 0, ["p", "y"])
+                worksheet.write_row(1, 0, [row['p1'], row['y1']])
+                worksheet.write_row(2, 0, [row['p2'], row['y2']])
 
-    # Well length (p1,y1 → p1,y2)
-    worksheet.write_row(4, 0, ["p", "y"])
-    worksheet.write_row(5, 0, [row['p1'], row['y1']])
-    worksheet.write_row(6, 0, [row['p1'], row['y2']])
+                # Well length (p1,y1 → p1,y2)
+                worksheet.write_row(4, 0, ["p", "y"])
+                worksheet.write_row(5, 0, [row['p1'], row['y1']])
+                worksheet.write_row(6, 0, [row['p1'], row['y2']])
 
-    chart_sheet = workbook.add_chartsheet(f'Graph {sheet_num}')
-    chart = workbook.add_chart({'type': 'scatter', 'subtype': 'straight_with_markers'})
+                chart_sheet = workbook.add_chartsheet(f'Graph {sheet_num}')
+                chart = workbook.add_chart({'type': 'scatter', 'subtype': 'straight_with_markers'})
 
-    # Add well path
-    chart.add_series({
-        'name': f'Well Path {sheet_num}',
-        'categories': [sheet_name, 1, 0, 2, 0],
-        'values': [sheet_name, 1, 1, 2, 1],
-        'line': {'color': 'red'},
-        'marker': {'type': 'circle', 'size': 6, 'fill': {'color': 'red'}}
-    })
+                # Add well path
+                chart.add_series({
+                    'name': f'Well Path {sheet_num}',
+                    'categories': [sheet_name, 1, 0, 2, 0],
+                    'values': [sheet_name, 1, 1, 2, 1],
+                    'line': {'color': 'red'},
+                    'marker': {'type': 'circle', 'size': 6, 'fill': {'color': 'red'}}
+                })
 
-    # Add well length
-    chart.add_series({
-        'name': f'Well Length {sheet_num}',
-        'categories': [sheet_name, 5, 0, 6, 0],
-        'values': [sheet_name, 5, 1, 6, 1],
-        'line': {'color': 'blue', 'dash_type': 'dash'},
-        'marker': {'type': 'none'}
-    })
-
+                # Add well length
+                chart.add_series({
+                    'name': f'Well Length {sheet_num}',
+                    'categories': [sheet_name, 5, 0, 6, 0],
+                    'values': [sheet_name, 5, 1, 6, 1],
+                    'line': {'color': 'blue', 'dash_type': 'dash'},
+                    'marker': {'type': 'none'}
+                })
 
                 chart.set_x_axis({
                     'name': 'Gradient Pressure, psi',
