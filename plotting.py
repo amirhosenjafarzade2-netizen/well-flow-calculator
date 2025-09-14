@@ -155,15 +155,20 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
                 label=f'GLR curve ({interpolation_status.capitalize()}, Q0={production_rate} stb/day, GLR={glr_input})')
         
         # Plot data points
-        ax.scatter([p1], [y1], color=curve_color, s=50, label=f'(p1, y1) = ({p1:.2f} psi, {y1:.2f} ft)')
-        ax.scatter([p2], [y2], color=curve_color, s=50, label=f'(p2, y2) = ({p2:.2f} psi, {y2:.2f} ft)')
+        ax.scatter([p1], [y1], color=curve_color, s=50,
+                   label=f'(p1, y1) = ({p1:.2f} psi, {y1:.2f} ft)')
+        ax.scatter([p2], [y2], color=curve_color, s=50,
+                   label=f'(p2, y2) = ({p2:.2f} psi, {y2:.2f} ft)')
         
         # Plot reference lines
         ax.plot([p1, p1], [y1, 0], color='red', linewidth=1, label='Connecting Line')
         ax.plot([p1, 0], [y1, y1], color='red', linewidth=1)
         ax.plot([p2, p2], [y2, 0], color='red', linewidth=1)
         ax.plot([p2, 0], [y2, y2], color='red', linewidth=1)
-        ax.plot([0, 0], [y1, y2], color='green', linewidth=4, label=f'Well Length ({D:.2f} ft)')
+        
+        # ✅ Thick green vertical line for well length (D)
+        ax.plot([0, 0], [y1, y2], color='green' if mode == 'color' else 'black',
+                linewidth=4, label=f'Well Length (D = {D:.2f} ft)')
         
         # Configure axes
         configure_axes(
@@ -179,7 +184,8 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
         ax.invert_yaxis()
         
         # Add legend
-        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.3), fontsize=8, frameon=True, edgecolor='black', ncol=1)
+        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.3),
+                  fontsize=8, frameon=True, edgecolor='black', ncol=1)
         plt.tight_layout()
         
         # Check for empty plot
