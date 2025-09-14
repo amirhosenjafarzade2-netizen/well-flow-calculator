@@ -25,7 +25,7 @@ logger = setup_logging()
 def load_reference_data():
     """
     Load reference Excel file (referenceexcel.xlsx) from GitHub and parse into a list of dictionaries.
-    Filter out invalid GLR values below 5000.
+    Returns None if loading or parsing fails.
     """
     logger.info("Loading reference Excel file from GitHub...")
     try:
@@ -50,14 +50,8 @@ def load_reference_data():
             parts = name.split()
             try:
                 conduit_size = float(parts[0])
-                conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
-                if abs(conduit_size - float(parts[0])) > 1e-6:
-                    logger.warning(f"Corrected conduit_size from {parts[0]} to {conduit_size} in row {index}")
                 production_rate = float(parts[2])
                 glr = float(parts[4].replace('glr', ''))
-                if glr < 5000:
-                    logger.warning(f"Skipping row {index} with GLR {glr} < 5000")
-                    continue
                 coefficients = {
                     'a': float(row[1]),
                     'b': float(row[2]),
@@ -79,32 +73,31 @@ def load_reference_data():
             st.error("No valid data parsed from referenceexcel.xlsx.")
             logger.error("No valid data parsed from the Excel file.")
             return None
-        logger.info(f"Reference data loaded: {len(data_ref)} entries")
-        st.write("Debug: Filtered Reference Data:", data_ref)
+        logger.info("Reference data loaded successfully from referenceexcel.xlsx.")
         return data_ref
     except Exception as e:
         st.error(f"Error loading referenceexcel.xlsx from GitHub: {str(e)}")
         logger.error(f"Error loading reference Excel: {str(e)}")
         return None
 
-def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=None, min_D=1000):
+def load_ml_data(reference_data, conduit_size, num_points, production_rate=None, glr=None, min_D=1000):
     """
     Generate ML data using random_point_generator's generate_df function.
-    Ensure exact conduit_size and valid GLR values.
+    If production_rate or glr is None, use all valid combinations for the conduit size.
     """
-    conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
     dfs_ml = []
     required_cols = ["p1", "D", "y1", "y2", "p2"]
     
     filtered_data = [
         entry for entry in reference_data 
-        if abs(entry['conduit_size'] - conduit_size) < 1e-6 
-        and entry['production_rate'] == production_rate
-        and (glr is None or abs(entry['glr'] - glr) < 1e-6)
+        if entry['conduit_size'] == conduit_size 
+        and (production_rate is None or entry['production_rate'] == production_rate)
+        and (glr is None or entry['glr'] == glr)
     ]
     
     if not filtered_data:
-        st.error(f"No data found for conduit size {conduit_size}, production rate {production_rate}" +
+        st.error(f"No data found for conduit size {conduit_size}" + 
+                 (f", production rate {production_rate}" if production_rate else "") +
                  (f", GLR {glr}" if glr else ""))
         logger.error(f"No data found for conduit_size={conduit_size}, production_rate={production_rate}, glr={glr}")
         return None
@@ -116,33 +109,13 @@ def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=
         if df_temp is None or df_temp.empty:
             logger.warning(f"Failed to generate data for conduit={entry['conduit_size']}, prod={entry['production_rate']}, glr={entry['glr']}")
             continue
-        df_temp['conduit_size'] = conduit_size
+        df_temp['conduit_size'] = entry['conduit_size']
         df_temp['production_rate'] = entry['production_rate']
         df_temp['GLR'] = entry['glr']
         dfs_ml.append(df_temp)
-        progress.progress((i + 1) / len(filtered_data))
-    
-    df_ml = pd.concat(dfs_ml, ignore_index=True) if dfs_ml else None
-    if df_ml is not None:
-        # Validate discrete columns
-        df_ml['conduit_size'] = conduit_size
-        invalid_conduits = df_ml[~df_ml['conduit_size'].isin([2.875, 3.5])]
-        if not invalid_conduits.empty:
-            logger.warning(f"Invalid conduit_size values in df_ml: {invalid_conduits['conduit_size'].unique()}")
-        df_ml['production_rate'] = df_ml['production_rate'].apply(lambda x: min(PRODUCTION_RATES, key=lambda v: abs(v - x)))
-        valid_glrs = get_valid_glrs(reference_data, conduit_size, production_rate)
-        if valid_glrs:
-            df_ml['GLR'] = df_ml['GLR'].apply(lambda x: min(valid_glrs, key=lambda v: abs(v - x)))
-            invalid_glrs = df_ml[df_ml['GLR'] < 5000]
-            if not invalid_glrs.empty:
-                logger.warning(f"Invalid GLR values in df_ml: {invalid_glrs['GLR'].unique()}")
-        else:
-            st.warning(f"No valid GLRs for conduit {conduit_size} in, production {production_rate} stb/day")
-            logger.warning(f"No valid GLRs for conduit={conduit_size}, prod={production_rate}")
-            return None
-        st.write("Debug: df_ml conduit_size unique values:", df_ml['conduit_size'].unique())
-        st.write("Debug: df_ml GLR unique values:", df_ml['GLR'].unique())
-    return df_ml
+    progress.progress((i + 1) / len(filtered_data))
+
+    return pd.concat(dfs_ml, ignore_index=True) if dfs_ml else None
 
 def train_neural_network(df_ml):
     """
@@ -165,30 +138,29 @@ def train_neural_network(df_ml):
     ])
     model.compile(optimizer='adam', loss='mse')
     
+    # Progress bar for training
     st.write("Training neural network...")
     progress = st.progress(0)
     epochs = 50
     for epoch in range(epochs):
         model.fit(X_scaled, y, epochs=1, batch_size=32, validation_split=0.2, verbose=0)
         progress.progress((epoch + 1) / epochs)
-        time.sleep(0.05)
+        time.sleep(0.05)  # Smooth progress bar animation
     return model, scaler
 
 def get_valid_glrs(reference_data, conduit_size, production_rate):
     """
     Get the list of valid discrete GLR values for the given conduit_size and production_rate.
     """
-    conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
     valid_glrs = sorted([
-        entry['glr'] for entry in reference_data
-        if abs(entry['conduit_size'] - conduit_size) < 1e-6 and entry['production_rate'] == production_rate
-        and entry['glr'] >= 5000
+        entry['glr'] for entry in reference_data 
+        if entry['conduit_size'] == conduit_size 
+        and entry['production_rate'] == production_rate
     ])
     logger.info(f"Valid GLRs for conduit_size={conduit_size}, production_rate={production_rate}: {valid_glrs}")
-    st.write(f"Debug: Valid GLRs for conduit {conduit_size} in, production {production_rate} stb/day:", valid_glrs)
     return valid_glrs
 
-def run_sensitivity_analysis(model, scaler, df_ml, reference_data, conduit_size, production_rate):
+def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
     """
     Perform sensitivity analysis on the trained neural network model.
     """
@@ -201,24 +173,18 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data, conduit_size,
     
     features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
     
-    # Ensure exact conduit_size
-    conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
-    base_values = {
-        'conduit_size': conduit_size,
-        'production_rate': production_rate
-    }
-    for feature in features:
-        if feature not in ['conduit_size', 'production_rate', 'GLR']:
-            base_values[feature] = df_ml[feature].mean()
+    # Get base values from df_ml mean
+    base_values = df_ml[features].mean().to_dict()
     
-    valid_glrs = get_valid_glrs(reference_data, conduit_size, production_rate)
-    base_values['GLR'] = min(valid_glrs) if valid_glrs else 5000
+    # Snap conduit_size and production_rate to valid values
+    base_values['conduit_size'] = min([2.875, 3.5], key=lambda x: abs(x - base_values['conduit_size']))
+    base_values['production_rate'] = min(PRODUCTION_RATES, key=lambda x: abs(x - base_values['production_rate']))
     
-    st.write("Debug: Reference Data for conduit_size and production_rate:", [
-        entry for entry in reference_data 
-        if abs(entry['conduit_size'] - conduit_size) < 1e-6 and entry['production_rate'] == production_rate
-    ])
+    # Snap GLR to valid value
+    valid_glrs = get_valid_glrs(reference_data, base_values['conduit_size'], base_values['production_rate'])
+    base_values['GLR'] = min(valid_glrs, key=lambda x: abs(x - base_values['GLR'])) if valid_glrs else base_values['GLR']
     
+    # Select parameters for sensitivity
     st.write("Select parameters to analyze their impact on predicted pressure gradient (p2).")
     params_to_vary = st.multiselect(
         "Parameters to Vary:",
@@ -251,15 +217,16 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data, conduit_size,
             for i, param in enumerate(params_to_vary):
                 logger.info(f"Processing sensitivity analysis for parameter: {param}")
                 if param in ['conduit_size', 'production_rate', 'GLR']:
+                    # Use valid discrete values from reference_data
                     if param == 'conduit_size':
                         param_values = [2.875, 3.5]
                     elif param == 'production_rate':
                         param_values = PRODUCTION_RATES
                     else:  # GLR
-                        param_values = get_valid_glrs(reference_data, conduit_size, production_rate)
+                        param_values = get_valid_glrs(reference_data, base_values['conduit_size'], base_values['production_rate'])
                         if not param_values:
-                            st.warning(f"No valid GLRs for conduit {conduit_size} in, production {production_rate} stb/day. Skipping {param}.")
-                            logger.warning(f"No valid GLRs for conduit={conduit_size}, prod={production_rate}.")
+                            st.warning(f"No valid GLRs for conduit {base_values['conduit_size']} in, production {base_values['production_rate']} stb/day. Skipping {param}.")
+                            logger.warning(f"No valid GLRs for conduit={base_values['conduit_size']}, prod={base_values['production_rate']}.")
                             continue
                 else:
                     min_val = df_ml[param].min()
@@ -326,7 +293,7 @@ def analyze_parameter_effects(model, scaler, df_ml):
             st.subheader(f"Effect of GLR (Conduit: {conduit_size} in, Production: {production_rate} stb/day)")
             st.pyplot(fig)
 
-    glr_values = np.linspace(5000, 25000, 100)
+    glr_values = np.linspace(0, 25000, 100)
     base_values = df_ml[features].mean().to_dict()
     X_test_glr = pd.DataFrame([base_values] * 100)
     X_test_glr['GLR'] = glr_values
@@ -368,11 +335,8 @@ def get_valid_glr_range(conduit_size, production_rate):
     """
     Get the valid GLR range for the given conduit_size and production_rate.
     """
-    conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
     ranges = INTERPOLATION_RANGES.get((conduit_size, production_rate), [])
-    min_glr = min(r[0] for r in ranges) if ranges else 5000
-    max_glr = max(r[1] for r in ranges) if ranges else 25000
-    return max(min_glr, 5000), max_glr
+    return min(r[0] for r in ranges) if ranges else 0, max(r[1] for r in ranges) if ranges else 25000
 
 def evaluate_individual(individual, model, scaler):
     """
@@ -397,7 +361,7 @@ def custom_mutation(individual, indpb, conduit_sizes, production_rates, valid_gl
     if random.random() < indpb:
         individual[1] = random.choice(production_rates)
     if random.random() < indpb and valid_glrs:
-        individual[2] = random.choice([g for g in valid_glrs if g >= 5000])
+        individual[2] = random.choice(valid_glrs)
     return individual,
 
 def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_generations=20):
@@ -409,6 +373,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_g
     conduit_sizes = [2.875, 3.5]
     production_rates = PRODUCTION_RATES
 
+    # Ensure DEAP classes are recreated to avoid conflicts
     if hasattr(creator, 'FitnessMin'):
         del creator.FitnessMin
     if hasattr(creator, 'Individual'):
@@ -423,8 +388,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_g
         conduit = random.choice(conduit_sizes)
         prod = random.choice(production_rates)
         valid_glrs = get_valid_glrs(reference_data, conduit, prod)
-        valid_glrs = [g for g in valid_glrs if g >= 5000]
-        return random.choice(valid_glrs) if valid_glrs else 5000
+        return random.choice(valid_glrs) if valid_glrs else random.uniform(0, 25000)
     toolbox.register("attr_glr", attr_glr)
     toolbox.register("individual", tools.initCycle, creator.Individual,
                      (toolbox.attr_conduit, toolbox.attr_prod, toolbox.attr_glr), n=1)
@@ -452,18 +416,15 @@ def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_g
                 child1[0] = min(conduit_sizes, key=lambda x: abs(x - child1[0]))
                 child1[1] = min(production_rates, key=lambda x: abs(x - child1[1]))
                 valid_glrs = get_valid_glrs(reference_data, child1[0], child1[1])
-                valid_glrs = [g for g in valid_glrs if g >= 5000]
-                child1[2] = min(valid_glrs, key=lambda x: abs(x - child1[2])) if valid_glrs else 5000
+                child1[2] = min(valid_glrs, key=lambda x: abs(x - child1[2])) if valid_glrs else child1[2]
                 child2[0] = min(conduit_sizes, key=lambda x: abs(x - child2[0]))
                 child2[1] = min(production_rates, key=lambda x: abs(x - child2[1]))
                 valid_glrs = get_valid_glrs(reference_data, child2[0], child2[1])
-                valid_glrs = [g for g in valid_glrs if g >= 5000]
-                child2[2] = min(valid_glrs, key=lambda x: abs(x - child2[2])) if valid_glrs else 5000
+                child2[2] = min(valid_glrs, key=lambda x: abs(x - child2[2])) if valid_glrs else child2[2]
                 del child1.fitness.values
                 del child2.fitness.values
         for mutant in offspring:
             valid_glrs = get_valid_glrs(reference_data, mutant[0], mutant[1])
-            valid_glrs = [g for g in valid_glrs if g >= 5000]
             toolbox.mutate(mutant, valid_glrs=valid_glrs)
             del mutant.fitness.values
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
@@ -607,7 +568,6 @@ def run_machine_learning():
     
     if not all_glr:
         valid_glrs = valid_glrs.get(production_rate, [])
-        valid_glrs = [g for g in valid_glrs if g >= 5000]
         if valid_glrs:
             glr = st.selectbox(
                 "GLR (scf/stb):",
@@ -654,9 +614,19 @@ def run_machine_learning():
                 optimize_neural_network_conditions(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, st.session_state.reference_data, n_generations)
             elif option == "Sensitivity Analysis":
                 logger.info("Running sensitivity analysis")
-                run_sensitivity_analysis(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, st.session_state.reference_data, conduit_size, production_rate)
+                run_sensitivity_analysis(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, st.session_state.reference_data)
         except Exception as e:
             st.error(f"Error in analysis: {str(e)}")
             logger.error(f"Error in analysis: {str(e)}")
     else:
         st.warning("Please generate data and train the model before selecting an analysis type.")
+
+</xaiArtifact>
+
+### Changes Made
+1. **Handled Missing Columns**:
+   - Added check in `load_reference_data`:
+     ```python
+     if len(row) < 6:
+         logger.warning(f"Skipping row {index}: insufficient columns ({len(row)})")
+         continue
