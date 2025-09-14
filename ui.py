@@ -1,3 +1,4 @@
+# ui.py
 import streamlit as st
 import numpy as np
 from calculations import (calculate_results, calculate_tpr_points, calculate_ipr_fetkovich,
@@ -207,6 +208,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
     if 'natural_flow_inputs' not in st.session_state:
         st.session_state.natural_flow_inputs = {
             'conduit_size': 2.875,
+            'production_rate': 100.0,  # Added representative production rate
             'glr': 200.0,
             'D': 1000.0,
             'pwh': 1000.0,
@@ -240,6 +242,16 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             help="Select the conduit size (2.875 or 3.5 inches)."
         )
         st.session_state.natural_flow_inputs['conduit_size'] = conduit_size
+        
+        valid_prates, _ = get_valid_options(conduit_size)
+        valid_prates = [float(pr) for pr in valid_prates]
+        production_rate = st.selectbox(
+            "Representative Production Rate (stb/day):",
+            valid_prates,
+            index=valid_prates.index(st.session_state.natural_flow_inputs['production_rate']) if st.session_state.natural_flow_inputs['production_rate'] in valid_prates else 0,
+            help="Select a representative production rate for GLR validation (50 to 600 stb/day)."
+        )
+        st.session_state.natural_flow_inputs['production_rate'] = production_rate
         
         glr = st.number_input(
             "GLR (scf/stb):",
@@ -419,11 +431,13 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
     if calculate:
         with st.spinner("Calculating..."):
             errors = []
-            logger.debug(f"Natural Flow Finder inputs: conduit_size={conduit_size}, glr={glr}, D={D}, pwh={pwh}, pr={pr}, ipr_method={ipr_method}")
+            logger.debug(f"Natural Flow Finder inputs: conduit_size={conduit_size}, production_rate={production_rate}, glr={glr}, D={D}, pwh={pwh}, pr={pr}, ipr_method={ipr_method}")
             if not validate_conduit_size(conduit_size):
                 errors.append("Invalid conduit size. Must be 2.875 or 3.5 inches.")
-            if not validate_glr(conduit_size, 100, glr):
-                valid_range = get_valid_glr_range(conduit_size, 100)
+            if not validate_production_rate(production_rate):
+                errors.append("Invalid representative production rate. Must be between 50 and 600 stb/day.")
+            if not validate_glr(conduit_size, production_rate, glr):  # Use actual production_rate
+                valid_range = get_valid_glr_range(conduit_size, production_rate)
                 errors.append(f"Invalid GLR. Valid ranges: {valid_range}")
             if not validate_pressure(pwh, "wellhead pressure"):
                 errors.append("Invalid wellhead pressure. Must be between 0 and 4000 psi.")
@@ -460,8 +474,8 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 logger.error(f"Natural Flow Finder errors: {errors}")
             else:
                 try:
-                    # Calculate TPR points
-                    tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, reference_data)
+                    # Calculate TPR points with correct arguments
+                    tpr_points = calculate_tpr_points(conduit_size, production_rate, glr, pwh, D, reference_data)
                     if tpr_points is None:
                         st.error("Failed to calculate TPR points. Check input parameters.")
                         logger.error("TPR points calculation returned None")
@@ -470,6 +484,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     # Calculate IPR points and params
                     ipr_params = {}
                     ipr_points = []
+                    c, n = None, None
                     if ipr_method == "Fetkovich":
                         if st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Enter C and n directly":
                             c = st.session_state.natural_flow_inputs['c']
@@ -693,7 +708,7 @@ def main():
     apply_theme()
     
     # Placeholder for reference data and interpolation ranges
-    reference_data = st.session_state.get('REFERENCE_DATA', [...])
+    reference_data = st.session_state.get('REFERENCE_DATA', [])
     interpolation_ranges = INTERPOLATION_RANGES
     production_rates = PRODUCTION_RATES
     
