@@ -73,7 +73,7 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
         )
         st.session_state.p2_finder_inputs['production_rate'] = production_rate
         
-        valid_glrs_dict = {pr: [float(glr) for gl,line glr in glrs] for pr, glrs in valid_glrs.items()}
+        valid_glrs_dict = {pr: [float(glr) for glr in glrs] for pr, glrs in valid_glrs.items()}
         glr_option = st.selectbox(
             "GLR (scf/stb):",
             ["Custom"] + valid_glrs_dict.get(production_rate, []),
@@ -250,7 +250,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             "Well Length, D (ft):",
             min_value=0.0,
             max_value=31000.0,
-            value=float(st.session_state.natural_flow_inputs['D']),
+            value=st.session_state.natural_flow_inputs['D'],
             step=100.0,
             help="Enter the well length (must satisfy y1 + D ≤ 31000 ft)."
         )
@@ -437,7 +437,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             if not validate_pressure(pr, "reservoir pressure", max_pressure=10000):
                 errors.append("Invalid reservoir pressure. Must be between 0 and 10000 psi.")
             if not validate_depth_and_pressure(0, D):
-                errors.append("Invalid well length. Must be between 0 and 31000 ft.")
+                errors.append("Invalid well length. Must be such that y1 + D ≤ 31000 ft.")
             
             if ipr_method == "Fetkovich":
                 if fetkovich_input_method == "Enter C and n directly":
@@ -466,22 +466,13 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 logger.error(f"Natural Flow Finder errors: {errors}")
             else:
                 try:
-                    # Validate inputs and reference_data
+                    # Validate reference_data
                     if reference_data is None or reference_data == [...]:
                         st.error("Reference data is missing or invalid. Please check data initialization.")
                         logger.error("Reference data is None or placeholder")
                         return
-                    if D <= 0:
-                        st.error("Well length (D) must be positive.")
-                        logger.error("Invalid well length: D <= 0")
-                        return
-                    
-                    # Debug inputs
-                    logger.info(f"Calling calculate_tpr_points with conduit_size={conduit_size}, glr={glr}, D={D}, pwh={pwh}, reference_data={reference_data}")
-                    st.write(f"Debug: Calling calculate_tpr_points with conduit_size={conduit_size}, glr={glr}, D={D}, pwh={pwh}")
-
                     # Calculate TPR points
-                    tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, reference_data)
+                    tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, data_ref=reference_data)
                     if tpr_points is None:
                         st.error("Failed to calculate TPR points. Check input data and reference data.")
                         logger.error("TPR points calculation returned None")
