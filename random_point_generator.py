@@ -131,6 +131,17 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
     coeffs_dict = entry['coefficients']
     coeffs = [coeffs_dict[k] for k in sorted(coeffs_dict.keys())]  # Ensure order: a, b, c, d, e, f
 
+    # Calculate dynamic x_range
+    x_values = np.linspace(0, 4000, 1000)
+    y_values = [calc_y1(x, coeffs) for x in x_values]
+    max_x = 4000
+    for x, y in zip(x_values, y_values):
+        if y is not None and y >= 31000:
+            max_x = x
+            break
+    x_range = (0, max_x)
+    y_range = (0, 31000)
+
     # Generate data
     df = generate_df(coeffs, num_points, min_D)
     if df is None or df.empty:
@@ -150,81 +161,148 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
         if generate_graphs:
             workbook = writer.book
             points_sheet = writer.sheets['Points']
+            chartdata_sheet = workbook.add_worksheet('ChartData')
+            chartdata_sheet.hide()
+
+            # Write GLR curve data
+            p1_full = np.linspace(x_range[0], x_range[1], 100)
+            y1_full = [calc_y1(p, coeffs) for p in p1_full]
+            chartdata_sheet.write_row(0, 0, p1_full)
+            chartdata_sheet.write_row(1, 0, [y if y is not None and y <= y_range[1] else y_range[1] for y in y1_full])
+
             # Select random rows for graphs
             if len(df) > num_graph_sheets:
                 df_graph = df.sample(n=num_graph_sheets, random_state=42).reset_index(drop=True)
             else:
                 df_graph = df
+
             for sheet_num in range(1, min(num_graph_sheets + 1, len(df_graph) + 1)):
                 idx = sheet_num - 1
                 row = df_graph.iloc[idx]
-                sheet_name = f'Data_{sheet_num}'
-                worksheet = workbook.add_worksheet(sheet_name)
-                worksheet.hide()
+                p1_val, y1_val, p2_val, y2_val, D_val = row['p1'], row['y1'], row['p2'], row['y2'], row['D']
 
-                # Well path (p1,y1 → p2,y2)
-                worksheet.write_row(0, 0, ["p", "y"])
-                worksheet.write_row(1, 0, [row['p1'], row['y1']])
-                worksheet.write_row(2, 0, [row['p2'], row['y2']])
+                # Write additional data for lines
+                row_offset = 2 + idx * 10
+                chartdata_sheet.write_row(row_offset, 0, [p1_val, p1_val])  # Vertical line at p1
+                chartdata_sheet.write_row(row_offset + 1, 0, [y1_val, 0])
+                chartdata_sheet.write_row(row_offset + 2, 0, [p1_val, 0])  # Horizontal line at y1
+                chartdata_sheet.write_row(row_offset + 3, 0, [y1_val, y1_val])
+                chartdata_sheet.write_row(row_offset + 4, 0, [p2_val, p2_val])  # Vertical line at p2
+                chartdata_sheet.write_row(row_offset + 5, 0, [y2_val, 0])
+                chartdata_sheet.write_row(row_offset + 6, 0, [p2_val, 0])  # Horizontal line at y2
+                chartdata_sheet.write_row(row_offset + 7, 0, [y2_val, y2_val])
+                chartdata_sheet.write_row(row_offset + 8, 0, [0, 0])  # Well length line
+                chartdata_sheet.write_row(row_offset + 9, 0, [y1_val, y2_val if y2_val <= y_range[1] else y_range[1]])
 
-                # Well length (p1,y1 → p1,y2)
-                worksheet.write_row(4, 0, ["p", "y"])
-                worksheet.write_row(5, 0, [row['p1'], row['y1']])
-                worksheet.write_row(6, 0, [row['p1'], row['y2']])
-
+                # Create chart
                 chart_sheet = workbook.add_chartsheet(f'Graph {sheet_num}')
-                chart = workbook.add_chart({'type': 'scatter', 'subtype': 'straight_with_markers'})
+                chart = workbook.add_chart({'type': 'scatter', 'subtype': 'straight'})
 
-                # Add well path
+                # GLR curve
                 chart.add_series({
-                    'name': f'Well Path {sheet_num}',
-                    'categories': [sheet_name, 1, 0, 2, 0],
-                    'values': [sheet_name, 1, 1, 2, 1],
-                    'line': {'color': 'red'},
-                    'marker': {'type': 'circle', 'size': 6, 'fill': {'color': 'red'}}
+                    'name': 'GLR curve',
+                    'categories': ['ChartData', 0, 0, 0, 99],
+                    'values': ['ChartData', 1, 0, 1, 99],
+                    'line': {'color': 'blue', 'width': 2.5},
+                    'marker': {'type': 'none'},
                 })
 
-                # Add well length
+                # Add (p1, y1) and (p2, y2) markers
                 chart.add_series({
-                    'name': f'Well Length {sheet_num}',
-                    'categories': [sheet_name, 5, 0, 6, 0],
-                    'values': [sheet_name, 5, 1, 6, 1],
-                    'line': {'color': 'blue', 'dash_type': 'dash'},
-                    'marker': {'type': 'none'}
+                    'name': f'(p1, y1) = ({p1_val:.2f} psi, {y1_val:.2f} ft)',
+                    'categories': ['Points', idx + 1, 3, idx + 1, 3],  # p1
+                    'values': ['Points', idx + 1, 5, idx + 1, 5],      # y1
+                    'marker': {'type': 'circle', 'size': 7, 'fill': {'color': 'blue'}},
+                    'line': {'none': True},
+                })
+                chart.add_series({
+                    'name': f'(p2, y2) = ({p2_val:.2f} psi, {y2_val:.2f} ft)',
+                    'categories': ['Points', idx + 1, 7, idx + 1, 7],  # p2
+                    'values': ['Points', idx + 1, 6, idx + 1, 6],      # y2
+                    'marker': {'type': 'circle', 'size': 7, 'fill': {'color': 'blue'}},
+                    'line': {'none': True},
                 })
 
+                # Connecting line (p1, y1) to (p2, y2)
+                chart.add_series({
+                    'name': 'Connecting Line',
+                    'categories': ['ChartData', row_offset, 0, row_offset, 1],
+                    'values': ['ChartData', row_offset + 1, 0, row_offset + 1, 1],
+                    'line': {'color': 'red', 'width': 1},
+                    'marker': {'type': 'none'},
+                })
+
+                # Horizontal and vertical lines
+                chart.add_series({
+                    'name': '',
+                    'categories': ['ChartData', row_offset + 2, 0, row_offset + 2, 1],
+                    'values': ['ChartData', row_offset + 3, 0, row_offset + 3, 1],
+                    'line': {'color': 'red', 'width': 1},
+                    'marker': {'type': 'none'},
+                    'legend': {'none': True},
+                })
+                chart.add_series({
+                    'name': '',
+                    'categories': ['ChartData', row_offset + 4, 0, row_offset + 4, 1],
+                    'values': ['ChartData', row_offset + 5, 0, row_offset + 5, 1],
+                    'line': {'color': 'red', 'width': 1},
+                    'marker': {'type': 'none'},
+                    'legend': {'none': True},
+                })
+                chart.add_series({
+                    'name': '',
+                    'categories': ['ChartData', row_offset + 6, 0, row_offset + 6, 1],
+                    'values': ['ChartData', row_offset + 7, 0, row_offset + 7, 1],
+                    'line': {'color': 'red', 'width': 1},
+                    'marker': {'type': 'none'},
+                    'legend': {'none': True},
+                })
+
+                # Well length line
+                chart.add_series({
+                    'name': f'Well Length ({D_val:.2f} ft)',
+                    'categories': ['ChartData', row_offset + 8, 0, row_offset + 8, 1],
+                    'values': ['ChartData', row_offset + 9, 0, row_offset + 9, 1],
+                    'line': {'color': 'green', 'width': 4},
+                    'marker': {'type': 'none'},
+                })
+
+                # Axes setup
                 chart.set_x_axis({
                     'name': 'Gradient Pressure, psi',
-                    'min': 0,
-                    'max': 4000,
-                    'major_unit': 1000,
-                    'minor_unit': 200,
+                    'min': x_range[0],
+                    'max': x_range[1],
+                    'major_unit': (x_range[1] - x_range[0]) / 4,
+                    'minor_unit': (x_range[1] - x_range[0]) / 20,
                     'name_font': {'color': 'black'},
                     'num_font': {'color': 'black'},
                     'line': {'color': 'black'},
                     'major_gridlines': {'visible': True, 'line': {'color': '#D3D3D3'}},
-                    'minor_gridlines': {'visible': True, 'line': {'color': '#D3D3D3', 'width': 0.5}}
+                    'minor_gridlines': {'visible': True, 'line': {'color': '#D3D3D3', 'width': 0.5}},
+                    'minor_tick_mark': 'none',
                 })
                 chart.set_y_axis({
                     'name': 'Depth, ft',
-                    'min': 0,
-                    'max': 31000,
-                    'major_unit': 10000,
-                    'minor_unit': 2000,
+                    'min': y_range[0],
+                    'max': y_range[1],
+                    'major_unit': (y_range[1] - y_range[0]) / 4,
+                    'minor_unit': (y_range[1] - y_range[0]) / 20,
                     'reverse': True,
                     'name_font': {'color': 'black'},
                     'num_font': {'color': 'black'},
                     'line': {'color': 'black'},
                     'major_gridlines': {'visible': True, 'line': {'color': '#D3D3D3'}},
-                    'minor_gridlines': {'visible': True, 'line': {'color': '#D3D3D3', 'width': 0.5}}
+                    'minor_gridlines': {'visible': True, 'line': {'color': '#D3D3D3', 'width': 0.5}},
+                    'minor_tick_mark': 'none',
                 })
                 chart.set_legend({
                     'position': 'right',
                     'font': {'size': 8},
                     'border': {'color': 'black', 'width': 0.5},
-                    'layout': {'x_position': 0.85, 'y_position': 0.02}
+                    'layout': {'x_position': 0.85, 'y_position': 0.02},
                 })
                 chart.set_size({'width': 1000, 'height': 600})
+                chart.set_title({'none': True})
                 chart_sheet.set_chart(chart)
 
     excel_buffer.seek(0)
