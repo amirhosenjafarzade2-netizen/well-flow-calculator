@@ -197,8 +197,10 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
     
     if st.button("Run Sensitivity Analysis"):
         with st.spinner("Performing sensitivity analysis..."):
+            # Progress bar for sensitivity analysis
+            progress = st.progress(0)
             results = {}
-            for param in params_to_vary:
+            for i, param in enumerate(params_to_vary):
                 if param in ['conduit_size', 'production_rate', 'GLR']:
                     # Use valid discrete values from reference_data
                     if param == 'conduit_size':
@@ -224,6 +226,10 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
                 X_sens_scaled = scaler.transform(X_sens[features])
                 sens_predictions = model.predict(X_sens_scaled, verbose=0).flatten()
                 results[param] = (param_values, sens_predictions)
+                
+                # Update progress bar
+                progress.progress((i + 1) / len(params_to_vary))
+                time.sleep(0.05)  # Smooth progress bar animation
             
             # Display results
             for param, (values, predictions) in results.items():
@@ -499,6 +505,10 @@ def run_machine_learning():
     """
     st.subheader("Mode 5: Machine Learning Analysis")
     
+    # Debug: Display session state to diagnose issues
+    if st.checkbox("Show Session State for Debugging"):
+        st.write("Session State:", {k: v for k, v in st.session_state.items() if k in ['model', 'scaler', 'df_ml', 'reference_data']})
+    
     # Initialize reference_data in session state if not already present
     if 'reference_data' not in st.session_state:
         with st.spinner("Loading referenceexcel.xlsx from GitHub..."):
@@ -584,6 +594,8 @@ def run_machine_learning():
             st.error(f"Error in Machine Learning mode: {str(e)}")
             logger.error(f"Error in Machine Learning mode: {str(e)}")
 
+    # Debug: Confirm analysis type selectbox options
+    st.write("Debug: Available Analysis Types: ['Parameter Analysis', 'Optimize Conditions', 'Sensitivity Analysis']")
     if 'model' in st.session_state and 'reference_data' in st.session_state:
         option = st.selectbox(
             "Choose Analysis Type:",
