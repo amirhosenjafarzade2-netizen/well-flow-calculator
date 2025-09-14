@@ -229,18 +229,7 @@ def evaluate_individual(individual, model, scaler):
     return (prediction,)
 
 def optimize_neural_network_conditions(model, scaler, df_ml, n_generations=20):
-    """
-    Optimize neural network conditions using a genetic algorithm with user-specified generations.
-    """
-    logger.info(f"Starting optimization with {n_generations} generations")
     features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
-    
-    # Ensure DEAP classes are recreated to avoid conflicts
-    if hasattr(creator, 'FitnessMin'):
-        del creator.FitnessMin
-    if hasattr(creator, 'Individual'):
-        del creator.Individual
-    
     creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
     creator.create("Individual", list, fitness=creator.FitnessMin)
     toolbox = base.Toolbox()
@@ -261,8 +250,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml, n_generations=20):
         ind.fitness.values = fit
     
     best_fitness_history = []
-    output_container = st.empty()  # Placeholder for UI updates
-    progress = output_container.progress(0)
+    progress = st.progress(0)
     for gen in range(n_generations):
         offspring = toolbox.select(pop, len(pop))
         offspring = list(map(toolbox.clone, offspring))
@@ -283,12 +271,12 @@ def optimize_neural_network_conditions(model, scaler, df_ml, n_generations=20):
         best_ind = tools.selBest(pop, 1)[0]
         best_fitness_history.append(best_ind.fitness.values[0])
         progress.progress((gen + 1) / n_generations)
-        logger.info(f"Generation {gen + 1}/{n_generations}: Best fitness = {best_ind.fitness.values[0]:.2f}")
-    
-    output_container.empty()  # Clear progress bar
-    st.write(f"Optimal Conditions: Conduit {best_ind[0]} in, Production {best_ind[1]} stb/day, GLR {best_ind[2]:.2f} SCF/STB")
-    st.write(f"Predicted Minimal Pressure Gradient: {best_fitness_history[-1]:.2f} psi")
-    logger.info(f"Optimization complete: Conduit {best_ind[0]}, Production {best_ind[1]}, GLR {best_ind[2]:.2f}, Fitness {best_fitness_history[-1]:.2f}")
+
+    st.write(f"Optimal Conditions for Minimal Pressure Gradient:")
+    st.write(f"Conduit Size: {best_ind[0]} in")
+    st.write(f"Production Rate: {best_ind[1]} stb/day")
+    st.write(f"GLR: {best_ind[2]:.2f}")
+    st.write(f"Predicted Pressure Gradient: {best_fitness_history[-1]:.2f} psi")
     
     # Plot fitness evolution
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -423,29 +411,24 @@ def run_machine_learning():
             if df_ml is None or df_ml.empty:
                 st.error("Failed to generate ML data.")
                 return
+            st.session_state.df_ml = df_ml
             st.subheader("Generated Data Preview")
             st.dataframe(df_ml.head())
         
-        try:
-            model, scaler = train_neural_network(df_ml)
-            if model is None:
-                st.error("Training failed.")
-                return
-            
-            st.success("Training complete!")
-            
-            option = st.selectbox(
-                "Choose Analysis Type:",
-                ["Parameter Analysis", "Optimize Conditions"],
-                key="analysis_type_selectbox"
-            )
-            logger.info(f"Selected analysis type: {option}")
-            if option == "Parameter Analysis":
-                logger.info("Running parameter analysis")
-                analyze_parameter_effects(model, scaler, df_ml)
-            elif option == "Optimize Conditions":
-                logger.info("Running optimization")
-                optimize_neural_network_conditions(model, scaler, df_ml, n_generations)
-        except Exception as e:
-            st.error(f"Error in Machine Learning mode: {str(e)}")
-            logger.error(f"Error in Machine Learning mode: {str(e)}")
+        model, scaler = train_neural_network(st.session_state.df_ml)
+        if model is None:
+            st.error("Training failed.")
+            return
+        st.session_state.model = model
+        st.session_state.scaler = scaler
+        st.success("Training complete!")
+
+    if 'model' in st.session_state:
+        option = st.selectbox(
+            "Choose Analysis Type:",
+            ["Parameter Analysis", "Optimize Conditions"]
+        )
+        if option == "Parameter Analysis":
+            analyze_parameter_effects(st.session_state.model, st.session_state.scaler, st.session_state.df_ml)
+        elif option == "Optimize Conditions":
+            optimize_neural_network_conditions(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, n_generations)
