@@ -100,7 +100,7 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
     Returns:
     - Matplotlib figure object or None if plotting fails
     """
-    logger.info(f"Plotting pressure vs. depth: p1={p1:.2f}, y1={y1:.2f}, p2={p2:.2f}, y2={y2:.2f}, D={D:.2f}, Q0={production_rate}, GLR={glr_input}")
+    logger.info(f"Plotting pressure vs. depth: p1={p1:.2f}, y1={y1:.2f}, p2={p2:.2f}, y2={y2:.2f}, Q0={production_rate}, GLR={glr_input}")
     
     try:
         # Initialize figure
@@ -108,7 +108,7 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
         fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
         ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
         
-        # Generate pressure points for GLR curve
+        # Generate pressure points
         p1_full = np.linspace(0, 4000, 100)
         y1_full = []
         crossing_x = None
@@ -158,24 +158,20 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
         ax.scatter([p1], [y1], color=curve_color, s=50, label=f'(p1, y1) = ({p1:.2f} psi, {y1:.2f} ft)')
         ax.scatter([p2], [y2], color=curve_color, s=50, label=f'(p2, y2) = ({p2:.2f} psi, {y2:.2f} ft)')
         
-        # Plot well length (green vertical line from y1 to y1 + D)
-        y2_corrected = min(y1 + D, 31000)  # Cap depth at 31,000 ft, like the first program
-        ax.plot([0, 0], [y1, y2_corrected], color='green' if mode == 'color' else 'black', linewidth=4,
-                label=f'Well Length ({D:.2f} ft)')
-        
         # Plot reference lines
         ax.plot([p1, p1], [y1, 0], color='red', linewidth=1, label='Connecting Line')
         ax.plot([p1, 0], [y1, y1], color='red', linewidth=1)
         ax.plot([p2, p2], [y2, 0], color='red', linewidth=1)
         ax.plot([p2, 0], [y2, y2], color='red', linewidth=1)
+        ax.plot([0, 0], [y1, y2], color='green', linewidth=4, label=f'Well Length ({D:.2f} ft)')
         
         # Configure axes
         configure_axes(
             ax,
             x_label='Gradient Pressure, psi',
             y_label='Depth, ft',
-            x_lim=(0, max(max(p1_full[:len(y1_full)]), p1, p2, 4000) * 1.1),
-            y_lim=(0, max(max(y1_full), y2_corrected, 31000) * 1.1),
+            x_lim=(0, 4000),
+            y_lim=(0, 31000),
             title=None,
             mode=mode,
             is_log_log=False
