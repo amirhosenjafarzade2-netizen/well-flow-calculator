@@ -1,8 +1,8 @@
-# ui.py
 import streamlit as st
 import numpy as np
 from calculations import (calculate_results, calculate_tpr_points, calculate_ipr_fetkovich,
-                         calculate_ipr_vogel, calculate_ipr_composite, find_intersection)
+                         calculate_ipr_vogel, calculate_ipr_composite, find_intersection,
+                         fit_fetkovich_parameters)
 from plotting import (plot_results, plot_curves, plot_fetkovich_log_log,
                      plot_fetkovich_flow_after_flow, plot_glr_graphs)
 from validators import (validate_conduit_size, validate_production_rate, validate_glr,
@@ -211,14 +211,8 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             'fetkovich_input_method': 'Enter C and n directly',
             'c': 1e-5,
             'n': 0.5,
-            'q01': 100.0,
-            'pwf1': 2000.0,
-            'q02': 200.0,
-            'pwf2': 1500.0,
-            'q03': 0.0,
-            'pwf3': 0.0,
-            'q04': 0.0,
-            'pwf4': 0.0,
+            'num_points': 2,
+            'points': [(100.0, 2000.0), (200.0, 1500.0), (0.0, 0.0), (0.0, 0.0)],
             'q_max': 500.0,
             'j_star': 0.5,
             'p_b': 2000.0
@@ -314,72 +308,37 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             )
             st.session_state.natural_flow_inputs['n'] = n
         else:
-            col3, col4 = st.columns(2)
-            with col3:
-                q01 = st.number_input(
-                    "Q01 (stb/day):",
-                    min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['q01'],
-                    step=10.0
-                )
-                st.session_state.natural_flow_inputs['q01'] = q01
-                
-                pwf1 = st.number_input(
-                    "Pwf1 (psi):",
-                    min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['pwf1'],
-                    step=10.0
-                )
-                st.session_state.natural_flow_inputs['pwf1'] = pwf1
-                
-                q02 = st.number_input(
-                    "Q02 (stb/day):",
-                    min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['q02'],
-                    step=10.0
-                )
-                st.session_state.natural_flow_inputs['q02'] = q02
-                
-                pwf2 = st.number_input(
-                    "Pwf2 (psi):",
-                    min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['pwf2'],
-                    step=10.0
-                )
-                st.session_state.natural_flow_inputs['pwf2'] = pwf2
+            num_points = st.selectbox(
+                "Number of Points:",
+                [2, 3, 4],
+                index=[2, 3, 4].index(st.session_state.natural_flow_inputs['num_points'])
+            )
+            st.session_state.natural_flow_inputs['num_points'] = num_points
             
-            with col4:
-                q03 = st.number_input(
-                    "Q03 (stb/day):",
-                    min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['q03'],
-                    step=10.0
-                )
-                st.session_state.natural_flow_inputs['q03'] = q03
-                
-                pwf3 = st.number_input(
-                    "Pwf3 (psi):",
-                    min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['pwf3'],
-                    step=10.0
-                )
-                st.session_state.natural_flow_inputs['pwf3'] = pwf3
-                
-                q04 = st.number_input(
-                    "Q04 (stb/day):",
-                    min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['q04'],
-                    step=10.0
-                )
-                st.session_state.natural_flow_inputs['q04'] = q04
-                
-                pwf4 = st.number_input(
-                    "Pwf4 (psi):",
-                    min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['pwf4'],
-                    step=10.0
-                )
-                st.session_state.natural_flow_inputs['pwf4'] = pwf4
+            points = []
+            col3, col4 = st.columns(2)
+            for i in range(num_points):
+                with col3 if i % 2 == 0 else col4:
+                    q0 = st.number_input(
+                        f"Q0{i+1} (stb/day):",
+                        min_value=0.0,
+                        value=st.session_state.natural_flow_inputs['points'][i][0],
+                        step=10.0,
+                        key=f"q0{i+1}"
+                    )
+                    pwf = st.number_input(
+                        f"Pwf{i+1} (psi):",
+                        min_value=0.0,
+                        max_value=float(pr),
+                        value=st.session_state.natural_flow_inputs['points'][i][1],
+                        step=10.0,
+                        key=f"pwf{i+1}"
+                    )
+                    points.append((q0, pwf))
+            # Pad points list with (0, 0) for unused points
+            while len(points) < 4:
+                points.append((0.0, 0.0))
+            st.session_state.natural_flow_inputs['points'] = points
     
     elif ipr_method == "Vogel":
         q_max = st.number_input(
@@ -428,23 +387,19 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 errors.append("Invalid well length. Must be such that y1 + D ≤ 31000 ft.")
             
             if ipr_method == "Fetkovich":
-                if st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Enter C and n directly":
-                    if not validate_fetkovich_parameters(st.session_state.natural_flow_inputs['c'], st.session_state.natural_flow_inputs['n']):
+                if fetkovich_input_method == "Enter C and n directly":
+                    if not validate_fetkovich_parameters(c, n):
                         errors.append("Invalid Fetkovich parameters C or n.")
                 else:
-                    fetkovich_points = [
-                        (st.session_state.natural_flow_inputs['q01'], st.session_state.natural_flow_inputs['pwf1']),
-                        (st.session_state.natural_flow_inputs['q02'], st.session_state.natural_flow_inputs['pwf2']),
-                        (st.session_state.natural_flow_inputs['q03'], st.session_state.natural_flow_inputs['pwf3']),
-                        (st.session_state.natural_flow_inputs['q04'], st.session_state.natural_flow_inputs['pwf4'])
-                    ]
+                    fetkovich_points = [p for p in points[:num_points] if p[0] > 0 and p[1] > 0]
                     if not validate_fetkovich_points(fetkovich_points, pr):
                         errors.append("Invalid Fetkovich test points.")
+            
             elif ipr_method == "Vogel":
-                if st.session_state.natural_flow_inputs['q_max'] <= 0:
+                if q_max <= 0:
                     errors.append("Invalid q_max for Vogel method. Must be positive.")
             elif ipr_method == "Composite":
-                if st.session_state.natural_flow_inputs['j_star'] <= 0 or st.session_state.natural_flow_inputs['p_b'] <= 0 or st.session_state.natural_flow_inputs['p_b'] > pr:
+                if j_star <= 0 or p_b <= 0 or p_b > pr:
                     errors.append("Invalid parameters for Composite method.")
             
             if errors:
@@ -460,27 +415,29 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     ipr_params = {}
                     ipr_points = []
                     if ipr_method == "Fetkovich":
-                        if st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Enter C and n directly":
+                        if fetkovich_input_method == "Enter C and n directly":
                             c = st.session_state.natural_flow_inputs['c']
                             n = st.session_state.natural_flow_inputs['n']
-                            _, _, ipr_points, _ = calculate_ipr_fetkovich(pr, c=c, n=n)
+                            ipr_points = calculate_ipr_fetkovich(pr, c=c, n=n)
                         else:
-                            fetkovich_points = [
-                                (st.session_state.natural_flow_inputs['q01'], st.session_state.natural_flow_inputs['pwf1']),
-                                (st.session_state.natural_flow_inputs['q02'], st.session_state.natural_flow_inputs['pwf2']),
-                                (st.session_state.natural_flow_inputs['q03'], st.session_state.natural_flow_inputs['pwf3']),
-                                (st.session_state.natural_flow_inputs['q04'], st.session_state.natural_flow_inputs['pwf4'])
-                            ]
-                            c, n, ipr_points, _ = calculate_ipr_fetkovich(pr, points=fetkovich_points)
+                            fetkovich_points = [p for p in points[:num_points] if p[0] > 0 and p[1] > 0]
+                            c, n = fit_fetkovich_parameters(pr, fetkovich_points)
+                            if c is None or n is None:
+                                st.error("Failed to fit Fetkovich parameters from points. Try adjusting points or using direct C/n input.")
+                                logger.warning("Fetkovich fit failed - displaying debug info")
+                                st.write("Debug: Provided points:", fetkovich_points)
+                                return
+                            st.info(f"Fitted Fetkovich parameters: C = {c:.6f}, n = {n:.2f}")
+                            ipr_points = calculate_ipr_fetkovich(pr, c=c, n=n)
                         ipr_params = {'c': c, 'n': n}
                     elif ipr_method == "Vogel":
                         q_max = st.session_state.natural_flow_inputs['q_max']
-                        _, ipr_points = calculate_ipr_vogel(pr, q_max)
+                        ipr_points = calculate_ipr_vogel(pr, q_max)
                         ipr_params = {'q_max': q_max}
                     elif ipr_method == "Composite":
                         j_star = st.session_state.natural_flow_inputs['j_star']
                         p_b = st.session_state.natural_flow_inputs['p_b']
-                        _, _, ipr_points = calculate_ipr_composite(pr, j_star, p_b)
+                        ipr_points = calculate_ipr_composite(pr, j_star, p_b)
                         ipr_params = {'j_star': j_star, 'p_b': p_b}
                     
                     # Find intersection
@@ -507,7 +464,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                             st.warning("Curves plot is empty - cannot export.")
                         
                         # Additional plots for Fetkovich with points
-                        if ipr_method == "Fetkovich" and st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Calculate C and n from points":
+                        if ipr_method == "Fetkovich" and fetkovich_input_method == "Calculate C and n from points":
                             try:
                                 log_log_fig = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode='color')
                                 if log_log_fig is not None:
@@ -637,7 +594,6 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                 logger.error(f"GLR Graph Drawer errors: {errors}")
             else:
                 try:
-                    # Placeholder: Assume plot_glr_graphs returns (fig, glr_data)
                     fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode=mode)
                     glr_data = [...]  # Replace with actual glr_data from plot_glr_graphs
                     if fig is not None:
