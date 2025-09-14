@@ -197,11 +197,10 @@ def run_random_point_generator():
                 }
                 df = pd.DataFrame(data)
 
-                # Calculate y1 and p2 using coefficients
-                df['y1'] = df['p1'].apply(lambda p: calc_y1(p, [coeffs[f] for f in ['a', 'b', 'c', 'd', 'e', 'f']]))
-                df['p2'] = [solve_p2(y1 + D, p1, [coeffs[f] for f in ['a', 'b', 'c', 'd', 'e', 'f']]) 
-                            for y1, p1, D in zip(df['y1'], df['p1'], df['D'])]
+                # Calculate y1, p2, y2
+                df['y1'] = df['p1'].apply(lambda p: calc_y1(p, list(coeffs.values())))
                 df['y2'] = df['y1'] + df['D']
+                df['p2'] = [solve_p2(y2, p1, list(coeffs.values())) for y2, p1 in zip(df['y2'], df['p1'])]
 
                 # Drop rows with invalid calculations
                 df = df.dropna()
@@ -248,19 +247,24 @@ def run_random_point_generator():
                     if generate_graphs:
                         workbook = writer.book
                         points_sheet = writer.sheets['Points']
+                        # Shuffle the data for random subsets
+                        df_shuffled = df.sample(frac=1).reset_index(drop=True)
+                        points_per_sheet = len(df_shuffled) // num_graph_sheets
                         for sheet_num in range(1, num_graph_sheets + 1):
+                            start_row = 1 + (sheet_num - 1) * points_per_sheet
+                            end_row = start_row + points_per_sheet - 1
+                            if sheet_num == num_graph_sheets:
+                                end_row = len(df_shuffled)
                             chart_sheet = workbook.add_chartsheet(f'Graph {sheet_num}')
                             chart = workbook.add_chart({'type': 'scatter', 'subtype': 'straight'})
-                            # Add series for p1 vs y1
                             chart.add_series({
                                 'name': f'p1 vs y1 (Graph {sheet_num})',
-                                'categories': ['Points', 1, 4, len(df), 4],  # y1 column
-                                'values': ['Points', 1, 3, len(df), 3],  # p1 column
+                                'categories': ['Points', start_row, 4, end_row, 4],  # y1 column (index 4)
+                                'values': ['Points', start_row, 3, end_row, 3],  # p1 column (index 3)
                                 'line': {'color': COLORS[(sheet_num - 1) % len(COLORS)]}
                             })
-                            # Configure axes
                             chart.set_x_axis({
-                                'name': 'Wellhead Pressure (p1, psi)',
+                                'name': 'Gradient Pressure, psi',
                                 'min': 0,
                                 'max': 4000,
                                 'major_unit': 1000,
@@ -272,7 +276,7 @@ def run_random_point_generator():
                                 'minor_gridlines': {'visible': True, 'line': {'color': '#D3D3D3', 'width': 0.5}}
                             })
                             chart.set_y_axis({
-                                'name': 'Wellhead Depth (y1, ft)',
+                                'name': 'Depth, ft',
                                 'min': 0,
                                 'max': 31000,
                                 'major_unit': 10000,
@@ -286,7 +290,9 @@ def run_random_point_generator():
                             })
                             chart.set_legend({
                                 'position': 'right',
-                                'font': {'size': 8}
+                                'font': {'size': 8},
+                                'border': {'color': 'black', 'width': 0.5},
+                                'layout': {'x_position': 0.85, 'y_position': 0.02},
                             })
                             chart.set_size({'width': 1000, 'height': 600})
                             chart_sheet.set_chart(chart)
