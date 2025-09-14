@@ -1,8 +1,9 @@
+# streamlit_app.py
 import streamlit as st
 from data_loader import load_reference_data
 from utils import setup_logging
 from config import INTERPOLATION_RANGES, PRODUCTION_RATES
-from ui import run_p2_finder, run_natural_flow_finder, run_glr_graph_drawer
+from ui import run_p2_finder, run_natural_flow_finder, run_glr_graph_drawer, run_random_point_generator, run_machine_learning
 
 # Initialize logger
 logger = setup_logging()
@@ -38,7 +39,7 @@ def main():
 
     # Mode selection
     st.header("Select Calculation Mode")
-    mode_options = ["p2 Finder", "Natural Flow Finder", "GLR Graph Drawer"]
+    mode_options = ["p2 Finder", "Natural Flow Finder", "GLR Graph Drawer", "Random Point Generator", "Machine Learning"]
     previous_mode = st.session_state.mode_select
     mode = st.selectbox("Choose a mode:", mode_options, key="mode_select")
 
@@ -53,6 +54,12 @@ def main():
             st.session_state.pop("natural_flow_results", None)
         if mode != "GLR Graph Drawer":
             st.session_state.pop("glr_graph_inputs", None)
+        if mode != "Random Point Generator":
+            st.session_state.pop("random_point_inputs", None)
+            st.session_state.pop("random_point_results", None)
+        if mode != "Machine Learning":
+            st.session_state.pop("machine_learning_inputs", None)
+            st.session_state.pop("machine_learning_results", None)
 
     # Create tabs for cleaner layout
     tabs = st.tabs(["Calculation", "Help"])
@@ -65,6 +72,10 @@ def main():
                 run_natural_flow_finder(st.session_state.REFERENCE_DATA, INTERPOLATION_RANGES, PRODUCTION_RATES)
             elif mode == "GLR Graph Drawer":
                 run_glr_graph_drawer(st.session_state.REFERENCE_DATA, INTERPOLATION_RANGES, PRODUCTION_RATES)
+            elif mode == "Random Point Generator":
+                run_random_point_generator()
+            elif mode == "Machine Learning":
+                run_machine_learning()
         except Exception as e:
             st.error(f"An unexpected error occurred: {str(e)}")
             logger.error(f"Error in {mode} mode: {str(e)}")
@@ -77,6 +88,8 @@ def main():
         - **Natural Flow Finder**: Find the natural flow rate by intersecting TPR and IPR curves.
           - For Fetkovich method, choose to enter C and n directly or calculate them from up to four test points (Q0, Pwf).
         - **GLR Graph Drawer**: Plot pressure vs. depth curves for all GLRs at a given conduit size and production rate.
+        - **Random Point Generator**: Generate random well performance data points for analysis and visualization.
+        - **Machine Learning**: Perform machine learning-based analysis on well performance data.
         
         **Inputs**:
         - Conduit size: 2.875 or 3.5 inches
@@ -85,6 +98,8 @@ def main():
         - Depth (D): Well length in feet (y1 + D ≤ 31000 ft)
         - Pressures: p1, pwh, pr (0 to 4000 psi)
         - Fetkovich: C (> 0), n (0 to 2), or test points (Q0 > 0, Pwf > 0)
+        - Random Point Generator: Specify number of points and parameter ranges (see module for details).
+        - Machine Learning: Input data file or use generated data for ML predictions (see module for details).
         
         **Contact**: For issues, check the GitHub repository or contact support.
         """)
