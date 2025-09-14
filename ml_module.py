@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Dense, Input
 from sklearn.preprocessing import StandardScaler
 from deap import base, creator, tools
 import random
@@ -130,7 +130,8 @@ def train_neural_network(df_ml):
     X_scaled = scaler.fit_transform(X)
     
     model = Sequential([
-        Dense(64, activation='relu', input_shape=(X.shape[1],)),
+        Input(shape=(X.shape[1],)),
+        Dense(64, activation='relu'),
         Dense(32, activation='relu'),
         Dense(1)
     ])
@@ -150,16 +151,17 @@ def analyze_parameter_effects(model, scaler, df_ml):
     """
     Generate parameter effect plots matching the main Colab program.
     """
+    features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
     for conduit_size in [2.875, 3.5]:
         for production_rate in PRODUCTION_RATES:
             glr_min, glr_max = get_valid_glr_range(conduit_size, production_rate)
             glr_values = np.linspace(glr_min, glr_max, 100)
-            base_values = df_ml.mean().to_dict()
+            base_values = df_ml[features].mean().to_dict()  # Use only features
             base_values['conduit_size'] = conduit_size
             base_values['production_rate'] = production_rate
             X_test_glr = pd.DataFrame([base_values] * 100)
             X_test_glr['GLR'] = glr_values
-            X_test_glr_scaled = scaler.transform(X_test_glr)
+            X_test_glr_scaled = scaler.transform(X_test_glr[features])  # Select features
             glr_predictions = model.predict(X_test_glr_scaled, verbose=0).flatten()
             fig, ax = plt.subplots(figsize=(8, 5))
             ax.plot(glr_values, glr_predictions, label=f'Conduit: {conduit_size} in, Prod: {production_rate} stb/day')
@@ -173,10 +175,10 @@ def analyze_parameter_effects(model, scaler, df_ml):
 
     # Overall Pressure vs. GLR
     glr_values = np.linspace(0, 25000, 100)
-    base_values = df_ml.mean().to_dict()
+    base_values = df_ml[features].mean().to_dict()  # Use only features
     X_test_glr = pd.DataFrame([base_values] * 100)
     X_test_glr['GLR'] = glr_values
-    X_test_glr_scaled = scaler.transform(X_test_glr)
+    X_test_glr_scaled = scaler.transform(X_test_glr[features])  # Select features
     glr_predictions = model.predict(X_test_glr_scaled, verbose=0).flatten()
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(glr_values, glr_predictions, label='Overall Pressure vs. GLR')
@@ -196,10 +198,10 @@ def analyze_parameter_effects(model, scaler, df_ml):
             param_values = PRODUCTION_RATES
         else:
             param_values = np.linspace(df_ml[param].min(), df_ml[param].max(), 100)
-        base_values = df_ml.mean().to_dict()
+        base_values = df_ml[features].mean().to_dict()  # Use only features
         X_test_param = pd.DataFrame([base_values] * len(param_values))
         X_test_param[param] = param_values
-        X_test_param_scaled = scaler.transform(X_test_param)
+        X_test_param_scaled = scaler.transform(X_test_param[features])  # Select features
         param_predictions = model.predict(X_test_param_scaled, verbose=0).flatten()
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.plot(param_values, param_predictions, label=f'Pressure Gradient vs. {param}')
@@ -216,16 +218,18 @@ def get_valid_glr_range(conduit_size, production_rate):
     return min(r[0] for r in ranges) if ranges else 0, max(r[1] for r in ranges) if ranges else 25000
 
 def evaluate_individual(individual, model, scaler):
+    features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
     conduit_size, production_rate, glr = individual
     input_data = pd.DataFrame([{
         'p1': 1000, 'D': 1000, 'y1': 5000, 'y2': 6000,
         'conduit_size': conduit_size, 'production_rate': production_rate, 'GLR': glr
     }])
-    input_scaled = scaler.transform(input_data)
+    input_scaled = scaler.transform(input_data[features])  # Select features
     prediction = model.predict(input_scaled, verbose=0)[0][0]
     return (prediction,)
 
 def optimize_neural_network_conditions(model, scaler, df_ml):
+    features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
     creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
     creator.create("Individual", list, fitness=creator.FitnessMin)
     toolbox = base.Toolbox()
@@ -282,7 +286,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
     st.pyplot(fig)
     
     # Optimization graphs
-    base_values = df_ml.mean().to_dict()
+    base_values = df_ml[features].mean().to_dict()  # Use only features
     base_values['conduit_size'] = best_ind[0]
     base_values['production_rate'] = best_ind[1]
     base_values['GLR'] = best_ind[2]
@@ -291,7 +295,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
     production_rates = PRODUCTION_RATES
     X_test_prod = pd.DataFrame([base_values] * len(production_rates))
     X_test_prod['production_rate'] = production_rates
-    X_test_prod_scaled = scaler.transform(X_test_prod)
+    X_test_prod_scaled = scaler.transform(X_test_prod[features])  # Select features
     prod_predictions = model.predict(X_test_prod_scaled, verbose=0).flatten()
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(production_rates, prod_predictions, marker='o', label='Pressure Gradient vs. Production Rate')
@@ -308,7 +312,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
     glr_values = np.linspace(glr_min, glr_max, 100)
     X_test_glr = pd.DataFrame([base_values] * 100)
     X_test_glr['GLR'] = glr_values
-    X_test_glr_scaled = scaler.transform(X_test_glr)
+    X_test_glr_scaled = scaler.transform(X_test_glr[features])  # Select features
     glr_predictions = model.predict(X_test_glr_scaled, verbose=0).flatten()
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(glr_values, glr_predictions, label='Pressure Gradient vs. GLR')
@@ -324,7 +328,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
     depth_values = np.linspace(df_ml['D'].min(), df_ml['D'].max(), 100)
     X_test_depth = pd.DataFrame([base_values] * 100)
     X_test_depth['D'] = depth_values
-    X_test_depth_scaled = scaler.transform(X_test_depth)
+    X_test_depth_scaled = scaler.transform(X_test_depth[features])  # Select features
     depth_predictions = model.predict(X_test_depth_scaled, verbose=0).flatten()
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(depth_values, depth_predictions, label='Pressure Gradient vs. Depth')
@@ -399,15 +403,19 @@ def run_machine_learning():
             st.subheader("Generated Data Preview")
             st.dataframe(df_ml.head())
         
-        model, scaler = train_neural_network(df_ml)
-        if model is None:
-            st.error("Training failed.")
-            return
-        
-        st.success("Training complete!")
-        
-        option = st.selectbox("Choose: 1. Parameter Analysis or 2. Optimize Conditions", ["1", "2"])
-        if option == "1":
-            analyze_parameter_effects(model, scaler, df_ml)
-        elif option == "2":
-            optimize_neural_network_conditions(model, scaler, df_ml)
+        try:
+            model, scaler = train_neural_network(df_ml)
+            if model is None:
+                st.error("Training failed.")
+                return
+            
+            st.success("Training complete!")
+            
+            option = st.selectbox("Choose: 1. Parameter Analysis or 2. Optimize Conditions", ["1", "2"])
+            if option == "1":
+                analyze_parameter_effects(model, scaler, df_ml)
+            elif option == "2":
+                optimize_neural_network_conditions(model, scaler, df_ml)
+        except Exception as e:
+            st.error(f"Error in Machine Learning mode: {str(e)}")
+            logger.error(f"Error in Machine Learning mode: {str(e)}")
