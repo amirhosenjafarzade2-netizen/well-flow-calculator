@@ -108,13 +108,24 @@ def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=
         if df_temp is None or df_temp.empty:
             logger.warning(f"Failed to generate data for conduit={entry['conduit_size']}, prod={entry['production_rate']}, glr={entry['glr']}")
             continue
-        df_temp['conduit_size'] = entry['conduit_size']
-        df_temp['production_rate'] = entry['production_rate']
-        df_temp['GLR'] = entry['glr']
+        df_temp['conduit_size'] = entry['conduit_size']  # Ensure exact value
+        df_temp['production_rate'] = entry['production_rate']  # Ensure exact value
+        df_temp['GLR'] = entry['glr']  # Ensure exact value
         dfs_ml.append(df_temp)
         progress.progress((i + 1) / len(filtered_data))
     
-    return pd.concat(dfs_ml, ignore_index=True) if dfs_ml else None
+    df_ml = pd.concat(dfs_ml, ignore_index=True) if dfs_ml else None
+    if df_ml is not None:
+        # Validate discrete columns
+        df_ml['conduit_size'] = df_ml['conduit_size'].round(3).clip(lower=2.875, upper=3.5)
+        df_ml['conduit_size'] = df_ml['conduit_size'].apply(lambda x: min([2.875, 3.5], key=lambda v: abs(v - x)))
+        df_ml['production_rate'] = df_ml['production_rate'].apply(lambda x: min(PRODUCTION_RATES, key=lambda v: abs(v - x)))
+        valid_glrs = get_valid_glrs(reference_data, conduit_size, production_rate)
+        if valid_glrs:
+            df_ml['GLR'] = df_ml['GLR'].apply(lambda x: min(valid_glrs, key=lambda v: abs(v - x)))
+        else:
+            logger.warning(f"No valid GLRs for validation in load_ml_data, using original GLR values")
+    return df_ml
 
 def train_neural_network(df_ml):
     """
@@ -151,9 +162,11 @@ def get_valid_glrs(reference_data, conduit_size, production_rate):
     """
     Get the list of valid discrete GLR values for the given conduit_size and production_rate.
     """
+    # Round conduit_size to handle floating-point issues
+    conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
     valid_glrs = sorted([
         entry['glr'] for entry in reference_data
-        if entry['conduit_size'] == conduit_size and entry['production_rate'] == production_rate
+        if abs(entry['conduit_size'] - conduit_size) < 1e-6 and entry['production_rate'] == production_rate
     ])
     logger.info(f"Valid GLRs for conduit_size={conduit_size}, production_rate={production_rate}: {valid_glrs}")
     return valid_glrs
@@ -171,8 +184,21 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
     
     features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
     
-    # Get base values from df_ml mean
-    base_values = df_ml[features].mean().to_dict()
+    # Get base values, using mode for discrete parameters
+    base_values = {}
+    for feature in features:
+        if feature in ['conduit_size', 'production_rate', 'GLR']:
+            # Use mode for discrete parameters
+            base_values[feature] = df_ml[feature].mode()[0]
+        else:
+            base_values[feature] = df_ml[feature].mean()
+    
+    # Validate discrete base values
+    base_values['conduit_size'] = min([2.875, 3.5], key=lambda x: abs(x - base_values['conduit_size']))
+    base_values['production_rate'] = min(PRODUCTION_RATES, key=lambda x: abs(x - base_values['production_rate']))
+    valid_glrs = get_valid_glrs(reference_data, base_values['conduit_size'], base_values['production_rate'])
+    if valid_glrs:
+        base_values['GLR'] = min(valid_glrs, key=lambda x: abs(x - base_values['GLR']))
     
     # Select parameters for sensitivity
     st.write("Select parameters to analyze their impact on predicted pressure gradient (p2).")
@@ -215,12 +241,10 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
                     elif param == 'production_rate':
                         param_values = PRODUCTION_RATES
                     else:  # GLR
-                        conduit = base_values.get('conduit_size', 2.875)
-                        prod = base_values.get('production_rate', PRODUCTION_RATES[0])
-                        # Ensure conduit and prod are valid
-                        conduit = min([2.875, 3.5], key=lambda x: abs(x - conduit))
-                        prod = min(PRODUCTION_RATES, key=lambda x: abs(x - prod))
+                        conduit = base_values['conduit_size']
+                        prod = base_values['production_rate']
                         param_values = get_valid_glrs(reference_data, conduit, prod)
+                        st.write(f"Debug: Valid GLRs for conduit {conduit} in, production {prod} stb/day:", param_values)
                         if not param_values:
                             st.warning(f"No valid GLRs for conduit {conduit} in, production {prod} stb/day. Skipping {param}.")
                             logger.warning(f"No valid GLRs for conduit={conduit}, prod={prod}.")
