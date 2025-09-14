@@ -4,6 +4,7 @@ from data_loader import load_reference_data
 from utils import setup_logging
 from config import INTERPOLATION_RANGES, PRODUCTION_RATES
 from ui import run_p2_finder, run_natural_flow_finder, run_glr_graph_drawer, run_random_point_generator, run_machine_learning
+from theme_module import theme_selector, apply_theme
 
 # Initialize logger
 logger = setup_logging()
@@ -11,8 +12,20 @@ logger = setup_logging()
 def main():
     """
     Main function to run the Streamlit application.
-    Initializes reference data and handles mode selection.
+    Initializes reference data, applies theme, and handles mode selection.
     """
+    # Initialize theme in session state
+    if 'theme' not in st.session_state:
+        st.session_state.theme = 'Light'
+    if 'custom_colors' not in st.session_state:
+        st.session_state.custom_colors = {}
+
+    # Apply theme on page load
+    apply_theme(st.session_state.theme, st.session_state.custom_colors)
+
+    # Display theme selector in top-left corner
+    theme_selector()
+
     st.title("Well Pressure and Depth Calculator")
 
     # Initialize session state for mode selection
