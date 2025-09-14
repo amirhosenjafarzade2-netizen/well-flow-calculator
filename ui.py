@@ -250,7 +250,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             "Well Length, D (ft):",
             min_value=0.0,
             max_value=31000.0,
-            value=st.session_state.natural_flow_inputs['D'],
+            value=float(st.session_state.natural_flow_inputs['D']),
             step=100.0,
             help="Enter the well length (must satisfy y1 + D ≤ 31000 ft)."
         )
@@ -437,7 +437,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             if not validate_pressure(pr, "reservoir pressure", max_pressure=10000):
                 errors.append("Invalid reservoir pressure. Must be between 0 and 10000 psi.")
             if not validate_depth_and_pressure(0, D):
-                errors.append("Invalid well length. Must be such that y1 + D ≤ 31000 ft.")
+                errors.append("Invalid well length. Must be between 0 and 31000 ft.")
             
             if ipr_method == "Fetkovich":
                 if fetkovich_input_method == "Enter C and n directly":
@@ -466,11 +466,16 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 logger.error(f"Natural Flow Finder errors: {errors}")
             else:
                 try:
-                    # Validate reference_data
+                    # Validate inputs and reference_data
                     if reference_data is None or reference_data == [...]:
                         st.error("Reference data is missing or invalid. Please check data initialization.")
                         logger.error("Reference data is None or placeholder")
                         return
+                    if D <= 0:
+                        st.error("Well length (D) must be positive.")
+                        logger.error("Invalid well length: D <= 0")
+                        return
+                    
                     # Calculate TPR points
                     tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, data_ref=reference_data)
                     if tpr_points is None:
