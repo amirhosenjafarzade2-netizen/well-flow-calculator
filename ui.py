@@ -1,4 +1,3 @@
-# ui.py
 import streamlit as st
 import numpy as np
 from calculations import (calculate_results, calculate_tpr_points, calculate_ipr_fetkovich,
@@ -176,19 +175,20 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                                         st.download_button(
                                             label="Download Plot as PNG",
                                             data=export_plot_to_png(fig),
-                                            file_name="pressure_vs_depth_plot.png",
+                                            file_name="p2_finder_plot.png",
                                             mime="image/png"
                                         )
                                     except Exception as e:
                                         st.error(f"Failed to export plot as PNG: {str(e)}")
-                                        logger.error(f"PNG export failed: {str(e)}")
+                                        logger.error(f"p2 Finder PNG export failed: {str(e)}")
                                 else:
                                     st.warning("Plot is empty - cannot export.")
                             else:
-                                st.warning("Failed to generate plot.")
+                                st.error("Failed to generate pressure vs depth plot.")
+                                logger.error("p2 Finder plot returned None")
                         except Exception as e:
-                            st.warning(f"Failed to plot pressure vs. depth graph: {str(e)}")
-                            logger.error(f"Plotting failed: {str(e)}")
+                            st.error(f"Failed to plot results: {str(e)}")
+                            logger.error(f"p2 Finder plotting failed: {str(e)}")
                 except Exception as e:
                     st.error(f"Calculation failed: {str(e)}")
                     logger.error(f"p2 Finder calculation failed: {str(e)}")
@@ -197,32 +197,32 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
     st.write("Any warnings or informational messages will appear here.")
 
 def run_natural_flow_finder(reference_data, interpolation_ranges, production_rates):
-    """UI for Natural Flow Finder: Calculate natural flow rate by intersecting TPR and IPR curves."""
+    """UI for Natural Flow Finder: Find natural flow rate by intersecting TPR and IPR."""
     logger.info("Running Natural Flow Finder UI")
     
     if 'natural_flow_inputs' not in st.session_state:
         st.session_state.natural_flow_inputs = {
             'conduit_size': 2.875,
-            'production_rate': 100.0,  # Added back for validation
+            'production_rate': 100.0,
             'glr': 200.0,
-            'D': 1000.0,
             'pwh': 1000.0,
-            'pr': 3000.0,
+            'D': 1000.0,
+            'pr': 2000.0,
             'ipr_method': 'Fetkovich',
-            'fetkovich_input_method': 'Enter C and n directly',
-            'c': 1e-5,
+            'fetkovich_input_method': 'Direct',
+            'c': 0.0001,
             'n': 0.5,
+            'q_max': 500.0,
+            'j_star': 0.5,
+            'p_b': 1000.0,
             'q01': 100.0,
-            'pwf1': 2000.0,
+            'pwf1': 1500.0,
             'q02': 200.0,
-            'pwf2': 1500.0,
+            'pwf2': 1000.0,
             'q03': 0.0,
             'pwf3': 0.0,
             'q04': 0.0,
-            'pwf4': 0.0,
-            'q_max': 500.0,
-            'j_star': 0.5,
-            'p_b': 2000.0
+            'pwf4': 0.0
         }
     
     st.subheader("Natural Flow Finder Inputs")
@@ -234,193 +234,236 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             "Conduit Size (in):",
             valid_conduits,
             index=valid_conduits.index(st.session_state.natural_flow_inputs['conduit_size']),
+            key="nf_conduit",
             help="Select the conduit size (2.875 or 3.5 inches)."
         )
         st.session_state.natural_flow_inputs['conduit_size'] = conduit_size
         
-        # Added production_rate input for GLR validation
-        valid_prates, _ = get_valid_options(conduit_size)
+        valid_prates, valid_glrs = get_valid_options(conduit_size)
         valid_prates = [float(pr) for pr in valid_prates]
         production_rate = st.selectbox(
-            "Production Rate for Validation (stb/day):",
+            "Production Rate (stb/day):",
             valid_prates,
             index=valid_prates.index(st.session_state.natural_flow_inputs['production_rate']) if st.session_state.natural_flow_inputs['production_rate'] in valid_prates else 0,
-            help="Select production rate for GLR validation (50 to 600 stb/day)."
+            key="nf_prate",
+            help="Select the production rate (50 to 600 stb/day)."
         )
         st.session_state.natural_flow_inputs['production_rate'] = production_rate
         
-        glr = st.number_input(
+        valid_glrs_dict = {pr: [float(glr) for glr in glrs] for pr, glrs in valid_glrs.items()}
+        glr_option = st.selectbox(
             "GLR (scf/stb):",
-            min_value=0.0,
-            value=st.session_state.natural_flow_inputs['glr'],
-            step=100.0,
-            help="Enter the Gas-Liquid Ratio."
+            ["Custom"] + valid_glrs_dict.get(production_rate, []),
+            key="nf_glr",
+            help="Select a valid GLR or enter a custom value."
         )
+        if glr_option == "Custom":
+            glr = st.number_input(
+                "Custom GLR:",
+                min_value=0.0,
+                value=float(st.session_state.natural_flow_inputs['glr']),
+                step=100.0,
+                key="nf_custom_glr",
+                help="Enter a custom GLR value (must be within valid ranges)."
+            )
+        else:
+            glr = float(glr_option)
         st.session_state.natural_flow_inputs['glr'] = glr
-        
-        D = st.number_input(
-            "Well Length, D (ft):",
-            min_value=0.0,
-            max_value=31000.0,
-            value=st.session_state.natural_flow_inputs['D'],
-            step=100.0,
-            help="Enter the well length (must satisfy y1 + D ≤ 31000 ft)."
-        )
-        st.session_state.natural_flow_inputs['D'] = D
     
     with col2:
         pwh = st.number_input(
-            "Wellhead Pressure, Pwh (psi):",
+            "Wellhead Pressure, pwh (psi):",
             min_value=0.0,
             max_value=4000.0,
-            value=st.session_state.natural_flow_inputs['pwh'],
+            value=float(st.session_state.natural_flow_inputs['pwh']),
             step=10.0,
             help="Enter the wellhead pressure (0 to 4000 psi)."
         )
         st.session_state.natural_flow_inputs['pwh'] = pwh
         
+        D = st.number_input(
+            "Well Length, D (ft):",
+            min_value=0.0,
+            max_value=31000.0,
+            value=float(st.session_state.natural_flow_inputs['D']),
+            step=100.0,
+            help="Enter the well length (y1 + D ≤ 31000 ft)."
+        )
+        st.session_state.natural_flow_inputs['D'] = D
+        
         pr = st.number_input(
             "Reservoir Pressure, Pr (psi):",
             min_value=0.0,
-            max_value=10000.0,
-            value=st.session_state.natural_flow_inputs['pr'],
+            max_value=4000.0,
+            value=float(st.session_state.natural_flow_inputs['pr']),
             step=10.0,
-            help="Enter the reservoir pressure (0 to 10000 psi)."
+            help="Enter the reservoir pressure (0 to 4000 psi)."
         )
         st.session_state.natural_flow_inputs['pr'] = pr
     
+    st.subheader("IPR Method")
     ipr_method = st.selectbox(
-        "IPR Method:",
+        "Select IPR Method:",
         ["Fetkovich", "Vogel", "Composite"],
         index=["Fetkovich", "Vogel", "Composite"].index(st.session_state.natural_flow_inputs['ipr_method']),
-        help="Select the Inflow Performance Relationship method."
+        help="Choose the IPR calculation method."
     )
     st.session_state.natural_flow_inputs['ipr_method'] = ipr_method
     
+    c = None
+    n = None
+    q_max = None
+    j_star = None
+    p_b = None
+    q01 = None
+    pwf1 = None
+    q02 = None
+    pwf2 = None
+    q03 = None
+    pwf3 = None
+    q04 = None
+    pwf4 = None
+    
     if ipr_method == "Fetkovich":
+        st.subheader("Fetkovich Input Method")
         fetkovich_input_method = st.selectbox(
-            "Fetkovich Input Method:",
+            "Select Input Method:",
             ["Enter C and n directly", "Calculate C and n from points"],
-            index=0 if st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Enter C and n directly" else 1
+            index=0 if st.session_state.natural_flow_inputs['fetkovich_input_method'] == 'Direct' else 1,
+            key="fetkovich_input_method",
+            help="Choose whether to enter C and n directly or calculate them from test points."
         )
-        st.session_state.natural_flow_inputs['fetkovich_input_method'] = fetkovich_input_method
+        st.session_state.natural_flow_inputs['fetkovich_input_method'] = 'Direct' if fetkovich_input_method == "Enter C and n directly" else 'Points'
         
         if fetkovich_input_method == "Enter C and n directly":
-            c = st.number_input(
-                "Fetkovich C:",
-                min_value=0.0,
-                value=st.session_state.natural_flow_inputs['c'],
-                step=1e-6,
-                format="%.6e",
-                help="Enter positive value for C."
-            )
-            st.session_state.natural_flow_inputs['c'] = c
-            
-            n = st.number_input(
-                "Fetkovich n:",
-                min_value=0.0,
-                max_value=2.0,
-                value=st.session_state.natural_flow_inputs['n'],
-                step=0.01,
-                help="Enter value between 0 and 2 for n."
-            )
-            st.session_state.natural_flow_inputs['n'] = n
+            col3, col4 = st.columns(2)
+            with col3:
+                c = st.number_input(
+                    "C:",
+                    min_value=0.0,
+                    value=float(st.session_state.natural_flow_inputs['c']),
+                    step=0.00001,
+                    format="%.6f",
+                    help="Fetkovich C parameter (positive value)."
+                )
+            with col4:
+                n = st.number_input(
+                    "n:",
+                    min_value=0.0,
+                    max_value=2.0,
+                    value=float(st.session_state.natural_flow_inputs['n']),
+                    step=0.1,
+                    help="Fetkovich n parameter (0 to 2)."
+                )
         else:
+            st.write("Enter at least two test points (third and fourth are optional):")
             col3, col4 = st.columns(2)
             with col3:
                 q01 = st.number_input(
                     "Q01 (stb/day):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['q01'],
-                    step=10.0
+                    value=float(st.session_state.natural_flow_inputs['q01']),
+                    step=10.0,
+                    help="Production rate for first test point."
                 )
-                st.session_state.natural_flow_inputs['q01'] = q01
-                
                 pwf1 = st.number_input(
                     "Pwf1 (psi):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['pwf1'],
-                    step=10.0
+                    max_value=float(pr),
+                    value=float(st.session_state.natural_flow_inputs['pwf1']),
+                    step=10.0,
+                    help="Flowing bottomhole pressure for first test point."
                 )
-                st.session_state.natural_flow_inputs['pwf1'] = pwf1
-                
+                q03 = st.number_input(
+                    "Q03 (stb/day, optional):",
+                    min_value=0.0,
+                    value=float(st.session_state.natural_flow_inputs['q03']),
+                    step=10.0,
+                    help="Production rate for third test point (optional)."
+                )
+                pwf3 = st.number_input(
+                    "Pwf3 (psi, optional):",
+                    min_value=0.0,
+                    max_value=float(pr),
+                    value=float(st.session_state.natural_flow_inputs['pwf3']),
+                    step=10.0,
+                    help="Flowing bottomhole pressure for third test point (optional)."
+                )
+            with col4:
                 q02 = st.number_input(
                     "Q02 (stb/day):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['q02'],
-                    step=10.0
+                    value=float(st.session_state.natural_flow_inputs['q02']),
+                    step=10.0,
+                    help="Production rate for second test point."
                 )
-                st.session_state.natural_flow_inputs['q02'] = q02
-                
                 pwf2 = st.number_input(
                     "Pwf2 (psi):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['pwf2'],
-                    step=10.0
+                    max_value=float(pr),
+                    value=float(st.session_state.natural_flow_inputs['pwf2']),
+                    step=10.0,
+                    help="Flowing bottomhole pressure for second test point."
                 )
-                st.session_state.natural_flow_inputs['pwf2'] = pwf2
-            
-            with col4:
-                q03 = st.number_input(
-                    "Q03 (stb/day):",
-                    min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['q03'],
-                    step=10.0
-                )
-                st.session_state.natural_flow_inputs['q03'] = q03
-                
-                pwf3 = st.number_input(
-                    "Pwf3 (psi):",
-                    min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['pwf3'],
-                    step=10.0
-                )
-                st.session_state.natural_flow_inputs['pwf3'] = pwf3
-                
                 q04 = st.number_input(
-                    "Q04 (stb/day):",
+                    "Q04 (stb/day, optional):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['q04'],
-                    step=10.0
+                    value=float(st.session_state.natural_flow_inputs['q04']),
+                    step=10.0,
+                    help="Production rate for fourth test point (optional)."
                 )
-                st.session_state.natural_flow_inputs['q04'] = q04
-                
                 pwf4 = st.number_input(
-                    "Pwf4 (psi):",
+                    "Pwf4 (psi, optional):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['pwf4'],
-                    step=10.0
+                    max_value=float(pr),
+                    value=float(st.session_state.natural_flow_inputs['pwf4']),
+                    step=10.0,
+                    help="Flowing bottomhole pressure for fourth test point (optional)."
                 )
-                st.session_state.natural_flow_inputs['pwf4'] = pwf4
-    
+        st.session_state.natural_flow_inputs.update({
+            'c': c if c is not None else 0.0,
+            'n': n if n is not None else 0.0,
+            'q01': q01 if q01 is not None else 0.0,
+            'pwf1': pwf1 if pwf1 is not None else 0.0,
+            'q02': q02 if q02 is not None else 0.0,
+            'pwf2': pwf2 if pwf2 is not None else 0.0,
+            'q03': q03 if q03 is not None else 0.0,
+            'pwf3': pwf3 if pwf3 is not None else 0.0,
+            'q04': q04 if q04 is not None else 0.0,
+            'pwf4': pwf4 if pwf4 is not None else 0.0
+        })
     elif ipr_method == "Vogel":
         q_max = st.number_input(
-            "q_max (stb/day):",
+            "Q_max (stb/day):",
             min_value=0.0,
-            value=st.session_state.natural_flow_inputs['q_max'],
+            value=float(st.session_state.natural_flow_inputs['q_max']),
             step=10.0,
-            help="Enter the maximum production rate for Vogel method."
+            help="Maximum production rate for Vogel method."
         )
         st.session_state.natural_flow_inputs['q_max'] = q_max
-    
     elif ipr_method == "Composite":
-        j_star = st.number_input(
-            "J* (stb/day/psi):",
-            min_value=0.0,
-            value=st.session_state.natural_flow_inputs['j_star'],
-            step=0.01,
-            help="Enter the productivity index above bubble point."
-        )
-        st.session_state.natural_flow_inputs['j_star'] = j_star
-        
-        p_b = st.number_input(
-            "P_b (psi):",
-            min_value=0.0,
-            value=st.session_state.natural_flow_inputs['p_b'],
-            step=10.0,
-            help="Enter the bubble point pressure."
-        )
-        st.session_state.natural_flow_inputs['p_b'] = p_b
+        col3, col4 = st.columns(2)
+        with col3:
+            j_star = st.number_input(
+                "J* (stb/day/psi):",
+                min_value=0.0,
+                value=float(st.session_state.natural_flow_inputs['j_star']),
+                step=0.1,
+                help="Productivity index for Composite method."
+            )
+        with col4:
+            p_b = st.number_input(
+                "Bubble Point Pressure, P_b (psi):",
+                min_value=0.0,
+                max_value=float(pr),
+                value=float(st.session_state.natural_flow_inputs['p_b']),
+                step=10.0,
+                help="Bubble point pressure for Composite method."
+            )
+        st.session_state.natural_flow_inputs.update({
+            'j_star': j_star,
+            'p_b': p_b
+        })
     
     calculate = st.button("Calculate Natural Flow")
     
@@ -429,35 +472,41 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             errors = []
             if not validate_conduit_size(conduit_size):
                 errors.append("Invalid conduit size. Must be 2.875 or 3.5 inches.")
-            if not validate_glr(conduit_size, production_rate, glr):  # Use actual production_rate for validation
-                valid_range = get_valid_glr_range(conduit_size, production_rate)
-                errors.append(f"Invalid GLR. Valid ranges: {valid_range}")
+            if not validate_production_rate(production_rate):
+                errors.append("Invalid production rate. Must be between 50 and 600 stb/day.")
+            if not validate_glr(conduit_size, production_rate, glr):
+                try:
+                    valid_range = get_valid_glr_range(conduit_size, production_rate)
+                    errors.append(f"Invalid GLR. Valid ranges: {valid_range}")
+                    ranges = interpolation_ranges.get((conduit_size, production_rate), [])
+                    if ranges:
+                        min_glr, max_glr = ranges[0]
+                        glr = min(max_glr, max(min_glr, glr))
+                        st.info(f"GLR auto-corrected to {glr:.2f} scf/stb.")
+                except Exception as e:
+                    errors.append(f"Failed to validate GLR: {str(e)}")
+                    logger.error(f"GLR validation error: {str(e)}")
             if not validate_pressure(pwh, "wellhead pressure"):
                 errors.append("Invalid wellhead pressure. Must be between 0 and 4000 psi.")
-            if not validate_pressure(pr, "reservoir pressure", max_pressure=10000):
-                errors.append("Invalid reservoir pressure. Must be between 0 and 10000 psi.")
             if not validate_depth_and_pressure(0, D):
-                errors.append("Invalid well length. Must be such that y1 + D ≤ 31000 ft.")
+                errors.append("Invalid well length. Must be between 0 and 31000 ft.")
+            if not validate_pressure(pr, "reservoir pressure"):
+                errors.append("Invalid reservoir pressure. Must be between 0 and 4000 psi.")
             
-            if ipr_method == "Fetkovich":
-                if st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Enter C and n directly":
-                    if not validate_fetkovich_parameters(st.session_state.natural_flow_inputs['c'], st.session_state.natural_flow_inputs['n']):
-                        errors.append("Invalid Fetkovich parameters C or n.")
-                else:
-                    fetkovich_points = [
-                        (st.session_state.natural_flow_inputs['q01'], st.session_state.natural_flow_inputs['pwf1']),
-                        (st.session_state.natural_flow_inputs['q02'], st.session_state.natural_flow_inputs['pwf2']),
-                        (st.session_state.natural_flow_inputs['q03'], st.session_state.natural_flow_inputs['pwf3']),
-                        (st.session_state.natural_flow_inputs['q04'], st.session_state.natural_flow_inputs['pwf4'])
-                    ]
-                    if not validate_fetkovich_points(fetkovich_points, pr):
-                        errors.append("Invalid Fetkovich test points.")
-            elif ipr_method == "Vogel":
-                if st.session_state.natural_flow_inputs['q_max'] <= 0:
-                    errors.append("Invalid q_max for Vogel method. Must be positive.")
+            if ipr_method == "Fetkovich" and fetkovich_input_method == "Enter C and n directly":
+                if not validate_fetkovich_parameters(c, n):
+                    errors.append("Invalid Fetkovich parameters: C must be positive, n must be between 0 and 2.")
+            elif ipr_method == "Fetkovich" and fetkovich_input_method == "Calculate C and n from points":
+                points = [(q01, pwf1), (q02, pwf2), (q03, pwf3), (q04, pwf4)]
+                if not validate_fetkovich_points(points, pr):
+                    errors.append("Invalid Fetkovich points: At least two valid points required (Q0 > 0, 0 ≤ Pwf ≤ Pr).")
+            elif ipr_method == "Vogel" and (q_max is None or q_max <= 0):
+                errors.append("Invalid Q_max for Vogel method. Must be positive.")
             elif ipr_method == "Composite":
-                if st.session_state.natural_flow_inputs['j_star'] <= 0 or st.session_state.natural_flow_inputs['p_b'] <= 0 or st.session_state.natural_flow_inputs['p_b'] > pr:
-                    errors.append("Invalid parameters for Composite method.")
+                if j_star is None or j_star <= 0:
+                    errors.append("Invalid J* for Composite method. Must be positive.")
+                if p_b is None or p_b <= 0 or p_b > pr:
+                    errors.append("Invalid P_b for Composite method. Must be between 0 and Pr.")
             
             if errors:
                 for error in errors:
@@ -465,111 +514,78 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 logger.error(f"Natural Flow Finder errors: {errors}")
             else:
                 try:
-                    # Calculate TPR points
+                    # Calculate TPR and IPR points
                     tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, reference_data)
-                    
-                    # Calculate IPR points and params
-                    ipr_params = {}
-                    ipr_points = []
                     if ipr_method == "Fetkovich":
-                        if st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Enter C and n directly":
-                            c = st.session_state.natural_flow_inputs['c']
-                            n = st.session_state.natural_flow_inputs['n']
-                            _, _, ipr_points, _ = calculate_ipr_fetkovich(pr, c=c, n=n)
-                        else:
-                            fetkovich_points = [
-                                (st.session_state.natural_flow_inputs['q01'], st.session_state.natural_flow_inputs['pwf1']),
-                                (st.session_state.natural_flow_inputs['q02'], st.session_state.natural_flow_inputs['pwf2']),
-                                (st.session_state.natural_flow_inputs['q03'], st.session_state.natural_flow_inputs['pwf3']),
-                                (st.session_state.natural_flow_inputs['q04'], st.session_state.natural_flow_inputs['pwf4'])
-                            ]
-                            c, n, ipr_points, _ = calculate_ipr_fetkovich(pr, points=fetkovich_points)
-                        ipr_params = {'c': c, 'n': n}
+                        c, n, ipr_points, fetkovich_points = calculate_ipr_fetkovich(
+                            pr, c, n, q01, pwf1, q02, pwf2, q03, pwf3, q04, pwf4
+                        )
+                        ipr_params = f"C={c:.4e}, n={n:.4f}"
                     elif ipr_method == "Vogel":
-                        q_max = st.session_state.natural_flow_inputs['q_max']
-                        _, ipr_points = calculate_ipr_vogel(pr, q_max)
-                        ipr_params = {'q_max': q_max}
-                    elif ipr_method == "Composite":
-                        j_star = st.session_state.natural_flow_inputs['j_star']
-                        p_b = st.session_state.natural_flow_inputs['p_b']
-                        _, _, ipr_points = calculate_ipr_composite(pr, j_star, p_b)
-                        ipr_params = {'j_star': j_star, 'p_b': p_b}
+                        q_max, ipr_points = calculate_ipr_vogel(pr, q_max)
+                        ipr_params = f"Q_max={q_max:.2f}"
+                    else:  # Composite
+                        j_star, p_b, ipr_points = calculate_ipr_composite(pr, j_star, p_b)
+                        ipr_params = f"J*={j_star:.4f}, P_b={p_b:.2f}"
                     
-                    # Find intersection
+                    # Calculate intersection
                     intersection_q0, intersection_p = find_intersection(tpr_points, ipr_points, pr)
                     
-                    # Plot curves
-                    fig = plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit_size, glr, D, pwh, pr, ipr_params)
-                    if fig is not None:
-                        st.subheader("TPR and IPR Curves")
-                        st.pyplot(fig)
-                        
-                        if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
-                            try:
-                                st.download_button(
-                                    label="Download Curves Plot as PNG",
-                                    data=export_plot_to_png(fig),
-                                    file_name="tpr_ipr_curves.png",
-                                    mime="image/png"
-                                )
-                            except Exception as e:
-                                st.error(f"Failed to export curves plot as PNG: {str(e)}")
-                                logger.error(f"Curves PNG export failed: {str(e)}")
-                        else:
-                            st.warning("Curves plot is empty - cannot export.")
-                        
-                        # Additional plots for Fetkovich with points
-                        if ipr_method == "Fetkovich" and st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Calculate C and n from points":
-                            try:
-                                log_log_fig = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode='color')
-                                if log_log_fig is not None:
-                                    st.subheader("Fetkovich Log-Log Plot")
-                                    st.pyplot(log_log_fig)
-                                    
-                                    if len(log_log_fig.axes) > 0 and len(log_log_fig.axes[0].lines) > 0:
-                                        try:
-                                            st.download_button(
-                                                label="Download Log-Log Plot as PNG",
-                                                data=export_plot_to_png(log_log_fig),
-                                                file_name="fetkovich_log_log_plot.png",
-                                                mime="image/png"
-                                            )
-                                        except Exception as e:
-                                            st.error(f"Failed to export log-log plot as PNG: {str(e)}")
-                                            logger.error(f"Log-log PNG export failed: {str(e)}")
-                                    else:
-                                        st.warning("Log-log plot is empty - cannot export.")
-                                else:
-                                    st.warning("Failed to generate Fetkovich log-log plot.")
-                            except Exception as e:
-                                st.warning(f"Failed to plot Fetkovich log-log graph: {str(e)}")
-                                logger.error(f"Log-log plotting failed: {str(e)}")
+                    # Plot TPR/IPR curves with intersection point
+                    try:
+                        fig = plot_curves(
+                            tpr_points, ipr_points, intersection_q0, intersection_p,
+                            conduit_size, glr, D, pwh, pr, ipr_params, mode='color'
+                        )
+                        if fig is not None:
+                            st.subheader("TPR and IPR Curves with Natural Flow Point")
+                            st.pyplot(fig)
                             
-                            if len(fetkovich_points) >= 4:
+                            if len(fig.axes) > 0 and len(fig.axes[0].lines) > 0:
                                 try:
-                                    flow_fig = plot_fetkovich_flow_after_flow(fetkovich_points, pr, c, n, mode='color')
-                                    if flow_fig is not None:
-                                        st.subheader("Fetkovich Flow-After-Flow Plot")
-                                        st.pyplot(flow_fig)
-                                        
-                                        if len(flow_fig.axes) > 0 and len(flow_fig.axes[0].lines) > 0:
-                                            try:
-                                                st.download_button(
-                                                    label="Download Flow-After-Flow Plot as PNG",
-                                                    data=export_plot_to_png(flow_fig),
-                                                    file_name="fetkovich_flow_after_flow_plot.png",
-                                                    mime="image/png"
-                                                )
-                                            except Exception as e:
-                                                st.error(f"Failed to export flow-after-flow plot as PNG: {str(e)}")
-                                                logger.error(f"Flow-after-flow PNG export failed: {str(e)}")
-                                        else:
-                                            st.warning("Flow-after-flow plot is empty - cannot export.")
-                                    else:
-                                        st.warning("Failed to generate Fetkovich flow-after-flow plot.")
+                                    st.download_button(
+                                        label="Download TPR/IPR Plot as PNG",
+                                        data=export_plot_to_png(fig),
+                                        file_name="tpr_ipr_plot.png",
+                                        mime="image/png"
+                                    )
                                 except Exception as e:
-                                    st.warning(f"Failed to plot Fetkovich flow-after-flow graph: {str(e)}")
-                                    logger.error(f"Flow-after-flow plotting failed: {str(e)}")
+                                    st.error(f"Failed to export TPR/IPR plot as PNG: {str(e)}")
+                                    logger.error(f"TPR/IPR PNG export failed: {str(e)}")
+                            else:
+                                st.warning("TPR/IPR plot is empty - cannot export.")
+                        else:
+                            st.warning("Failed to generate TPR/IPR plot.")
+                    except Exception as e:
+                        st.warning(f"Failed to plot TPR/IPR curves: {str(e)}")
+                        logger.error(f"TPR/IPR plotting failed: {str(e)}")
+                    
+                    # Plot Fetkovich log-log graph if applicable
+                    if ipr_method == "Fetkovich" and fetkovich_input_method == "Calculate C and n from points":
+                        try:
+                            log_log_fig = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode='color')
+                            if log_log_fig is not None:
+                                st.subheader("Fetkovich Log-Log Plot")
+                                st.pyplot(log_log_fig)
+                                
+                                if len(log_log_fig.axes) > 0 and len(log_log_fig.axes[0].lines) > 0:
+                                    try:
+                                        st.download_button(
+                                            label="Download Log-Log Plot as PNG",
+                                            data=export_plot_to_png(log_log_fig),
+                                            file_name="fetkovich_log_log_plot.png",
+                                            mime="image/png"
+                                        )
+                                    except Exception as e:
+                                        st.error(f"Failed to export log-log plot as PNG: {str(e)}")
+                                        logger.error(f"Log-log PNG export failed: {str(e)}")
+                                else:
+                                    st.warning("Log-log plot is empty - cannot export.")
+                            else:
+                                st.warning("Failed to generate Fetkovich log-log plot.")
+                        except Exception as e:
+                            st.warning(f"Failed to plot Fetkovich log-log graph: {str(e)}")
+                            logger.error(f"Log-log plotting failed: {str(e)}")
                     
                     # Display intersection results
                     st.subheader("Point of Natural Flow Results")
