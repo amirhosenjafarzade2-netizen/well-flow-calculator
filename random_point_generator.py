@@ -7,8 +7,75 @@ from data_loader import load_reference_data
 from config import PRODUCTION_RATES, INTERPOLATION_RANGES, COLORS
 from utils import export_plot_to_png, setup_logging
 import xlsxwriter
+import re
 
 logger = setup_logging()
+
+def parse_cell(cell_value):
+    """
+    Parse a cell value (e.g., '2.875 in 50 stb-day 100 glr') into conduit size, production rate, and GLR.
+    Returns (conduit_size, production_rate, glr) or (None, None, None) if parsing fails.
+    """
+    try:
+        cell_value = str(cell_value).strip()
+        if not re.match(r'[\d.]+\s*in\s*\d+\s*stb-day\s*\d+\s*glr', cell_value.lower()):
+            logger.error(f"Invalid cell format: {cell_value}")
+            return None, None, None
+        parts = cell_value.split()
+        conduit_size = float(parts[0])
+        production_rate = float(parts[2])
+        glr_str = parts[4].replace('glr', '')
+        glr = float(glr_str)
+        return conduit_size, production_rate, glr
+    except (IndexError, ValueError) as e:
+        logger.error(f"Failed to parse cell value: {cell_value}, error: {str(e)}")
+        return None, None, None
+
+def calc_y1(conduit_size, production_rate, glr, p1, reference_data):
+    """
+    Calculate wellhead depth (y1) based on inputs and reference data.
+    Returns y1 (float) or None if calculation fails.
+    """
+    try:
+        # Find matching reference data entry
+        for entry in reference_data:
+            if (entry['conduit_size'] == conduit_size and
+                entry['production_rate'] == production_rate and
+                entry['glr'] == glr):
+                # Placeholder: Assume y1 is derived from coefficients or a simple model
+                coefficients = entry['coefficients']
+                # Example: y1 = a * p1 + b (simplified, adjust based on actual logic)
+                y1 = coefficients['a'] * p1 + coefficients['b']
+                return y1
+        logger.warning(f"No matching reference data for conduit_size={conduit_size}, production_rate={production_rate}, glr={glr}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to calculate y1: {str(e)}")
+        return None
+
+def solve_p2(conduit_size, production_rate, glr, p1, D, reference_data):
+    """
+    Solve for bottomhole pressure (p2) given wellhead pressure (p1), depth (D), and reference data.
+    Returns p2 (float) or None if calculation fails.
+    """
+    try:
+        # Find matching reference data entry
+        for entry in reference_data:
+            if (entry['conduit_size'] == conduit_size and
+                entry['production_rate'] == production_rate and
+                entry['glr'] == glr):
+                coefficients = entry['coefficients']
+                # Placeholder: Assume p2 is calculated using a polynomial model
+                # Example: p2 = a * p1 + b * D + c (simplified, adjust based on actual logic)
+                p2 = (coefficients['a'] * p1 +
+                      coefficients['b'] * D +
+                      coefficients['c'])
+                return p2
+        logger.warning(f"No matching reference data for conduit_size={conduit_size}, production_rate={production_rate}, glr={glr}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to solve p2: {str(e)}")
+        return None
 
 def run_random_point_generator():
     """UI for generating and visualizing random well performance data using reference Excel data."""
