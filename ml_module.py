@@ -195,12 +195,16 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
         help="Number of points to evaluate for each parameter."
     )
     
+    # Debug: Display selected parameters
+    st.write("Debug: Selected Parameters:", params_to_vary)
+    
     if st.button("Run Sensitivity Analysis"):
         with st.spinner("Performing sensitivity analysis..."):
             # Progress bar for sensitivity analysis
             progress = st.progress(0)
             results = {}
             for i, param in enumerate(params_to_vary):
+                logger.info(f"Processing sensitivity analysis for parameter: {param}")
                 if param in ['conduit_size', 'production_rate', 'GLR']:
                     # Use valid discrete values from reference_data
                     if param == 'conduit_size':
@@ -221,6 +225,9 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
                     max_val = df_ml[param].max()
                     param_values = np.linspace(min_val, max_val, n_points)
                 
+                # Debug: Log parameter values
+                st.write(f"Debug: Parameter {param} values:", param_values[:5], "...")
+                
                 X_sens = pd.DataFrame([base_values] * len(param_values))
                 X_sens[param] = param_values
                 X_sens_scaled = scaler.transform(X_sens[features])
@@ -233,6 +240,8 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
             
             # Display results
             for param, (values, predictions) in results.items():
+                # Debug: Confirm plot data
+                st.write(f"Debug: Plotting {param} with {len(values)} values")
                 fig, ax = plt.subplots(figsize=(8, 5))
                 ax.plot(values, predictions, marker='o', label=f'p2 vs. {param}')
                 ax.set_xlabel(param.capitalize())
