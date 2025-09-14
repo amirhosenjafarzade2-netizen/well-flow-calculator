@@ -86,140 +86,122 @@ def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mod
 
 def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, production_rate, mode='color'):
     """
-    Plot pressure vs. depth for p2 Finder / Natural Flow Finder.
-
-    Important behavior preserved:
-    - GLR curve computed from polynomial(coeffs), capped at 31,000 ft
-    - (p1, y1) and (p2, y2) scatter points shown
-    - Thick green vertical line at x=0 from y1 to y2 representing D (well length)
+    Plot the pressure vs. depth curve for p2 Finder or Natural Flow Finder.
+    
+    Parameters:
+    - p1, y1, p2, y2: Pressure and depth points
+    - D: Well length in feet
+    - coeffs: Polynomial coefficients for pressure-depth relationship
+    - glr_input: Gas-Liquid Ratio
+    - interpolation_status: 'exact' or 'interpolated'
+    - production_rate: Production rate in stb/day
+    - mode: 'color' or 'bw' for colorful or black-and-white plots
+    
+    Returns:
+    - Matplotlib figure object or None if plotting fails
     """
-    logger.info(f"Plotting pressure vs. depth: p1={p1:.2f}, y1={y1:.2f}, p2={p2:.2f}, y2={y2:.2f}, D={D:.2f}, Q0={production_rate}, GLR={glr_input}")
-
+    logger.info(f"Plotting pressure vs. depth: p1={p1:.2f}, y1={y1:.2f}, p2={p2:.2f}, y2={y2:.2f}, Q0={production_rate}, GLR={glr_input}")
+    
     try:
-        # --- defensive input checks ---
-        if not np.isfinite(p1) or not np.isfinite(p2) or not np.isfinite(y1) or not np.isfinite(y2):
-            logger.error("One of p1, p2, y1 or y2 is not finite.")
-            return None
-        if D is None or D < 0:
-            logger.warning("D is not positive; continuing but check D value.")
-
-        # local polynomial to avoid NameError if not in global scope
-        def polynomial(x, c):
-            try:
-                return (c['a'] * x**5 + c['b'] * x**4 + c['c'] * x**3 +
-                        c['d'] * x**2 + c['e'] * x + c.get('f', 0.0))
-            except Exception:
-                return np.nan
-
         # Initialize figure
         fig, ax = plt.subplots(figsize=(10, 6), dpi=300)
-        bg = '#F5F5F5' if mode == 'color' else 'white'
-        fig.patch.set_facecolor(bg)
-        ax.set_facecolor(bg)
-
-        # --- build GLR curve and cap at 31,000 ft ---
-        p_vals = np.linspace(0, 4000, 400)
-        y_vals = np.array([polynomial(p, coeffs) for p in p_vals], dtype=float)
-
-        # Mark invalid / out-of-range values
-        valid_mask = np.isfinite(y_vals) & (y_vals <= 31000)
-
-        # If there is a crossing above 31k, cap once at the first crossing and stop plot there
-        end_index = None
-        if not np.all(valid_mask):
-            # find first index where invalid occurs after some valid points
-            for i in range(len(y_vals)):
-                if not valid_mask[i]:
-                    if i > 0 and np.isfinite(y_vals[i-1]):
-                        end_index = i
+        fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
+        ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
+        
+        # Generate pressure points
+        p1_full = np.linspace(0, 4000, 100)
+        y1_full = []
+        crossing_x = None
+        max_iterations = 100
+        iteration = 0
+        
+        # Compute depths for pressure points
+        for p in p1_full:
+            if iteration >= max_iterations:
+                logger.warning("Reached maximum iterations in depth calculation")
+                break
+            y = polynomial(p, coeffs)
+            if np.isfinite(y) and y <= 31000:
+                y1_full.append(y)
+            else:
+                if crossing_x is None and len(y1_full) > 0:
+                    def root_fn(x):
+                        return polynomial(x, coeffs) - 31000
+                    try:
+                        mid_guess = p1_full[max(0, len(y1_full) - 1)]
+                        candidate = np.linspace(mid_guess, p, 10)[5]
+                        if 0 <= candidate <= 4000:
+                            crossing_x = candidate
+                            y1_full.append(31000)
+                            break
+                    except Exception as e:
+                        logger.debug(f"Root finding failed: {str(e)}")
+                        crossing_x = p1_full[len(y1_full) - 1]
+                        y1_full.append(31000)
                         break
-            if end_index is None:
-                # either everything invalid or everything valid but >31000 — handle conservatively
-                if np.any(np.isfinite(y_vals)):
-                    # find last finite index
-                    finite_idx = np.where(np.isfinite(y_vals))[0]
-                    if finite_idx.size > 0:
-                        end_index = finite_idx[-1]
                 else:
-                    logger.error("No finite polynomial points to plot for GLR curve.")
-                    plt.close(fig)
-                    return None
-        else:
-            end_index = len(p_vals) - 1
-
-        # Build final arrays to plot (include the cap point at 31000 if needed)
-        if end_index is not None and end_index < len(p_vals) - 1:
-            plot_p = p_vals[:end_index+1].copy()
-            plot_y = y_vals[:end_index+1].copy()
-            # set the last value to 31000 to show cap
-            plot_y[-1] = 31000.0
-        else:
-            plot_p = p_vals
-            plot_y = y_vals
-            # clip to 31000 for safety
-            plot_y = np.where(np.isfinite(plot_y), np.minimum(plot_y, 31000.0), np.nan)
-
-        # Require at least two valid plotted points
-        if np.sum(np.isfinite(plot_y)) < 2:
-            logger.error("Insufficient valid GLR curve points to plot.")
+                    y1_full.append(31000)
+            iteration += 1
+        
+        # Validate computed points
+        if len(y1_full) < 2:
+            logger.error("Insufficient valid points for pressure vs. depth plot")
             plt.close(fig)
             return None
-
+        
         # Plot GLR curve
         curve_color = 'blue' if mode == 'color' else 'black'
-        ax.plot(plot_p, plot_y, color=curve_color, linewidth=2.5,
+        ax.plot(p1_full[:len(y1_full)], y1_full, color=curve_color, linewidth=2.5,
                 label=f'GLR curve ({interpolation_status.capitalize()}, Q0={production_rate} stb/day, GLR={glr_input})')
-
-        # --- Scatter key points ---
+        
+        # Plot data points
         ax.scatter([p1], [y1], color=curve_color, s=50,
-                   label=f'(p1, y1) = ({p1:.2f} psi, {y1:.2f} ft)', zorder=6)
+                   label=f'(p1, y1) = ({p1:.2f} psi, {y1:.2f} ft)')
         ax.scatter([p2], [y2], color=curve_color, s=50,
-                   label=f'(p2, y2) = ({p2:.2f} psi, {y2:.2f} ft)', zorder=6)
-
-        # --- Reference red lines (thin) ---
-        ax.plot([p1, p1], [y1, 0], color='red', linewidth=1, zorder=2)
-        ax.plot([p1, 0], [y1, y1], color='red', linewidth=1, zorder=2)
-        ax.plot([p2, p2], [y2, 0], color='red', linewidth=1, zorder=2)
-        ax.plot([p2, 0], [y2, y2], color='red', linewidth=1, zorder=2)
-
-        # --- Thick green vertical D line at x=0 (ensure visible) ---
-        green_color = 'green' if mode == 'color' else 'black'
-        # Ensure ordering y_low -> y_high for plotting
-        y_low, y_high = (y1, y2) if y1 <= y2 else (y2, y1)
-        ax.plot([0, 0], [y_low, y_high],
-                color=green_color, linewidth=6, solid_capstyle='butt', zorder=10,
-                label=f'Well Length (D = {D:.2f} ft)')
-
-        # --- Configure axes limits with a small margin so x=0 is visible ---
-        max_x = max(np.nanmax(plot_p[np.isfinite(plot_y)]), float(p1), float(p2), 4000.0)
-        max_y = max(float(y_low), float(y_high), 1000.0)
-        ax.set_xlim(0, max_x * 1.03)
-        ax.set_ylim(0, min(31000.0, max_y * 1.05))
-
-        # Axis labels / invert y-axis (depth)
-        ax.set_xlabel('Gradient Pressure, psi', fontsize=10)
-        ax.set_ylabel('Depth, ft', fontsize=10)
+                   label=f'(p2, y2) = ({p2:.2f} psi, {y2:.2f} ft)')
+        
+        # Plot reference lines
+        ax.plot([p1, p1], [y1, 0], color='red', linewidth=1, label='Connecting Line')
+        ax.plot([p1, 0], [y1, y1], color='red', linewidth=1)
+        ax.plot([p2, p2], [y2, 0], color='red', linewidth=1)
+        ax.plot([p2, 0], [y2, y2], color='red', linewidth=1)
+        
+        # ✅ Thick green vertical line for well length (D)
+        ax.plot([0, 0], [y1, y2], color='green' if mode == 'color' else 'black',
+                linewidth=4, label=f'Well Length (D = {D:.2f} ft)')
+        
+        # Configure axes
+        configure_axes(
+            ax,
+            x_label='Gradient Pressure, psi',
+            y_label='Depth, ft',
+            x_lim=(0, 4000),
+            y_lim=(0, 31000),
+            title=None,
+            mode=mode,
+            is_log_log=False
+        )
         ax.invert_yaxis()
-
-        # Grid and ticks similar to your original style
-        ax.grid(True, which='major', color='#D3D3D3')
-        ax.grid(True, which='minor', color='#D3D3D3', linestyle='-', alpha=0.5)
-        ax.xaxis.set_major_locator(plt.MultipleLocator(1000))
-        ax.xaxis.set_minor_locator(plt.MultipleLocator(200))
-        ax.yaxis.set_major_locator(plt.MultipleLocator(1000))
-        ax.yaxis.set_minor_locator(plt.MultipleLocator(200))
-
-        # Legend & layout
-        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.28), fontsize=8, frameon=True, edgecolor='black', ncol=1)
+        
+        # Add legend
+        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.3),
+                  fontsize=8, frameon=True, edgecolor='black', ncol=1)
         plt.tight_layout()
-
-        logger.info("Pressure vs. depth plot generated successfully (robust version).")
+        
+        # Check for empty plot
+        if len(ax.lines) == 0:
+            logger.error("Empty plot in plot_results - closing and returning None")
+            plt.close(fig)
+            return None
+        
+        logger.info("Pressure vs. depth plot generated successfully")
         return fig
-
+    
     except Exception as e:
-        logger.error(f"Failed to plot pressure vs. depth: {e}")
+        logger.error(f"Failed to plot pressure vs. depth: {str(e)}")
         plt.close()
         return None
+
 
 
 
