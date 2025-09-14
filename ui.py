@@ -2,7 +2,8 @@
 import streamlit as st
 import numpy as np
 from calculations import (calculate_results, calculate_tpr_points, calculate_ipr_fetkovich,
-                         calculate_ipr_vogel, calculate_ipr_composite, find_intersection)
+                         calculate_ipr_vogel, calculate_ipr_composite, find_intersection,
+                         fit_fetkovich_parameters)
 from plotting import (plot_results, plot_curves, plot_fetkovich_log_log,
                      plot_fetkovich_flow_after_flow, plot_glr_graphs)
 from validators import (validate_conduit_size, validate_production_rate, validate_glr,
@@ -438,6 +439,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         (st.session_state.natural_flow_inputs['q03'], st.session_state.natural_flow_inputs['pwf3']),
                         (st.session_state.natural_flow_inputs['q04'], st.session_state.natural_flow_inputs['pwf4'])
                     ]
+                    fetkovich_points = [p for p in fetkovich_points if p[0] > 0 and p[1] > 0]  # Filter valid points
                     if not validate_fetkovich_points(fetkovich_points, pr):
                         errors.append("Invalid Fetkovich test points.")
             elif ipr_method == "Vogel":
@@ -463,7 +465,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         if st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Enter C and n directly":
                             c = st.session_state.natural_flow_inputs['c']
                             n = st.session_state.natural_flow_inputs['n']
-                            _, _, ipr_points, _ = calculate_ipr_fetkovich(pr, c=c, n=n)
+                            ipr_points = calculate_ipr_fetkovich(pr, c=c, n=n)
                         else:
                             fetkovich_points = [
                                 (st.session_state.natural_flow_inputs['q01'], st.session_state.natural_flow_inputs['pwf1']),
@@ -471,16 +473,24 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                                 (st.session_state.natural_flow_inputs['q03'], st.session_state.natural_flow_inputs['pwf3']),
                                 (st.session_state.natural_flow_inputs['q04'], st.session_state.natural_flow_inputs['pwf4'])
                             ]
-                            c, n, ipr_points, _ = calculate_ipr_fetkovich(pr, points=fetkovich_points)
+                            fetkovich_points = [p for p in fetkovich_points if p[0] > 0 and p[1] > 0]  # Filter valid points
+                            c, n = fit_fetkovich_parameters(pr, fetkovich_points)
+                            if c is None or n is None:
+                                st.error("Failed to fit Fetkovich parameters from points. Try adjusting points or using direct C/n input.")
+                                logger.warning("Fetkovich fit failed - displaying debug info")
+                                st.write("Debug: Provided points:", fetkovich_points)
+                                return
+                            st.info(f"Fitted Fetkovich parameters: C = {c:.6f}, n = {n:.2f}")
+                            ipr_points = calculate_ipr_fetkovich(pr, c=c, n=n)
                         ipr_params = {'c': c, 'n': n}
                     elif ipr_method == "Vogel":
                         q_max = st.session_state.natural_flow_inputs['q_max']
-                        _, ipr_points = calculate_ipr_vogel(pr, q_max)
+                        ipr_points = calculate_ipr_vogel(pr, q_max)
                         ipr_params = {'q_max': q_max}
                     elif ipr_method == "Composite":
                         j_star = st.session_state.natural_flow_inputs['j_star']
                         p_b = st.session_state.natural_flow_inputs['p_b']
-                        _, _, ipr_points = calculate_ipr_composite(pr, j_star, p_b)
+                        ipr_points = calculate_ipr_composite(pr, j_star, p_b)
                         ipr_params = {'j_star': j_star, 'p_b': p_b}
                     
                     # Find intersection
