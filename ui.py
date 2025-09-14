@@ -1,3 +1,4 @@
+# ui.py
 import streamlit as st
 import numpy as np
 from calculations import (calculate_results, calculate_tpr_points, calculate_ipr_fetkovich,
@@ -9,6 +10,8 @@ from validators import (validate_conduit_size, validate_production_rate, validat
                        get_valid_glr_range, validate_fetkovich_parameters, validate_fetkovich_points)
 from utils import export_plot_to_png, setup_logging
 from config import COLORS
+from random_point_generator import run_random_point_generator
+from ml_module import run_machine_learning
 
 logger = setup_logging()
 
@@ -670,15 +673,15 @@ def main():
     apply_theme()
     
     # Placeholder for reference data and interpolation ranges
-    reference_data = [...]  # Assume reference data is loaded
-    interpolation_ranges = {...}  # Assume interpolation ranges are loaded
-    production_rates = [50, 100, 200, 300, 400, 500, 600]
+    reference_data = st.session_state.get('REFERENCE_DATA', [...])  # Use session state if available
+    interpolation_ranges = INTERPOLATION_RANGES
+    production_rates = PRODUCTION_RATES
     
     # Debug button for REFERENCE_DATA
     if st.button("Debug REFERENCE_DATA"):
         st.write(st.session_state.get('REFERENCE_DATA', "REFERENCE_DATA not found in session_state"))
     
-    tab1, tab2, tab3 = st.tabs(["p2 Finder", "Natural Flow Finder", "GLR Curves"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["p2 Finder", "Natural Flow Finder", "GLR Curves", "Random Point Generator", "Machine Learning"])
     
     with tab1:
         run_p2_finder(reference_data, interpolation_ranges, production_rates)
@@ -688,6 +691,12 @@ def main():
     
     with tab3:
         run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
+    
+    with tab4:
+        run_random_point_generator()
+    
+    with tab5:
+        run_machine_learning()
 
 if __name__ == "__main__":
     main()
