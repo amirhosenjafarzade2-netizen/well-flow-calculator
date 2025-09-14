@@ -158,8 +158,9 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
         ax.scatter([p1], [y1], color=curve_color, s=50, label=f'(p1, y1) = ({p1:.2f} psi, {y1:.2f} ft)')
         ax.scatter([p2], [y2], color=curve_color, s=50, label=f'(p2, y2) = ({p2:.2f} psi, {y2:.2f} ft)')
         
-        # Plot well length (green vertical line from y1 to y2)
-        ax.plot([0, 0], [y1, y2], color='green' if mode == 'color' else 'black', linewidth=4,
+        # Plot well length (green vertical line from y1 to y1 + D)
+        y2_corrected = min(y1 + D, 31000)  # Cap depth at 31,000 ft, like the first program
+        ax.plot([0, 0], [y1, y2_corrected], color='green' if mode == 'color' else 'black', linewidth=4,
                 label=f'Well Length ({D:.2f} ft)')
         
         # Plot reference lines
@@ -174,7 +175,7 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
             x_label='Gradient Pressure, psi',
             y_label='Depth, ft',
             x_lim=(0, max(max(p1_full[:len(y1_full)]), p1, p2, 4000) * 1.1),
-            y_lim=(0, max(max(y1_full), y2, 31000) * 1.1),
+            y_lim=(0, max(max(y1_full), y2_corrected, 31000) * 1.1),
             title=None,
             mode=mode,
             is_log_log=False
