@@ -156,12 +156,12 @@ def analyze_parameter_effects(model, scaler, df_ml):
         for production_rate in PRODUCTION_RATES:
             glr_min, glr_max = get_valid_glr_range(conduit_size, production_rate)
             glr_values = np.linspace(glr_min, glr_max, 100)
-            base_values = df_ml[features].mean().to_dict()  # Use only features
+            base_values = df_ml[features].mean().to_dict()
             base_values['conduit_size'] = conduit_size
             base_values['production_rate'] = production_rate
             X_test_glr = pd.DataFrame([base_values] * 100)
             X_test_glr['GLR'] = glr_values
-            X_test_glr_scaled = scaler.transform(X_test_glr[features])  # Select features
+            X_test_glr_scaled = scaler.transform(X_test_glr[features])
             glr_predictions = model.predict(X_test_glr_scaled, verbose=0).flatten()
             fig, ax = plt.subplots(figsize=(8, 5))
             ax.plot(glr_values, glr_predictions, label=f'Conduit: {conduit_size} in, Prod: {production_rate} stb/day')
@@ -175,10 +175,10 @@ def analyze_parameter_effects(model, scaler, df_ml):
 
     # Overall Pressure vs. GLR
     glr_values = np.linspace(0, 25000, 100)
-    base_values = df_ml[features].mean().to_dict()  # Use only features
+    base_values = df_ml[features].mean().to_dict()
     X_test_glr = pd.DataFrame([base_values] * 100)
     X_test_glr['GLR'] = glr_values
-    X_test_glr_scaled = scaler.transform(X_test_glr[features])  # Select features
+    X_test_glr_scaled = scaler.transform(X_test_glr[features])
     glr_predictions = model.predict(X_test_glr_scaled, verbose=0).flatten()
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(glr_values, glr_predictions, label='Overall Pressure vs. GLR')
@@ -198,10 +198,10 @@ def analyze_parameter_effects(model, scaler, df_ml):
             param_values = PRODUCTION_RATES
         else:
             param_values = np.linspace(df_ml[param].min(), df_ml[param].max(), 100)
-        base_values = df_ml[features].mean().to_dict()  # Use only features
+        base_values = df_ml[features].mean().to_dict()
         X_test_param = pd.DataFrame([base_values] * len(param_values))
         X_test_param[param] = param_values
-        X_test_param_scaled = scaler.transform(X_test_param[features])  # Select features
+        X_test_param_scaled = scaler.transform(X_test_param[features])
         param_predictions = model.predict(X_test_param_scaled, verbose=0).flatten()
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.plot(param_values, param_predictions, label=f'Pressure Gradient vs. {param}')
@@ -224,12 +224,23 @@ def evaluate_individual(individual, model, scaler):
         'p1': 1000, 'D': 1000, 'y1': 5000, 'y2': 6000,
         'conduit_size': conduit_size, 'production_rate': production_rate, 'GLR': glr
     }])
-    input_scaled = scaler.transform(input_data[features])  # Select features
+    input_scaled = scaler.transform(input_data[features])
     prediction = model.predict(input_scaled, verbose=0)[0][0]
     return (prediction,)
 
-def optimize_neural_network_conditions(model, scaler, df_ml):
+def optimize_neural_network_conditions(model, scaler, df_ml, n_generations=20):
+    """
+    Optimize neural network conditions using a genetic algorithm with user-specified generations.
+    """
+    logger.info(f"Starting optimization with {n_generations} generations")
     features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
+    
+    # Ensure DEAP classes are recreated to avoid conflicts
+    if hasattr(creator, 'FitnessMin'):
+        del creator.FitnessMin
+    if hasattr(creator, 'Individual'):
+        del creator.Individual
+    
     creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
     creator.create("Individual", list, fitness=creator.FitnessMin)
     toolbox = base.Toolbox()
@@ -250,8 +261,9 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
         ind.fitness.values = fit
     
     best_fitness_history = []
-    progress = st.progress(0)
-    for gen in range(20):
+    output_container = st.empty()  # Placeholder for UI updates
+    progress = output_container.progress(0)
+    for gen in range(n_generations):
         offspring = toolbox.select(pop, len(pop))
         offspring = list(map(toolbox.clone, offspring))
         for child1, child2 in zip(offspring[::2], offspring[1::2]):
@@ -270,14 +282,17 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
         pop[:] = offspring
         best_ind = tools.selBest(pop, 1)[0]
         best_fitness_history.append(best_ind.fitness.values[0])
-        progress.progress((gen + 1) / 20)
+        progress.progress((gen + 1) / n_generations)
+        logger.info(f"Generation {gen + 1}/{n_generations}: Best fitness = {best_ind.fitness.values[0]:.2f}")
     
+    output_container.empty()  # Clear progress bar
     st.write(f"Optimal Conditions: Conduit {best_ind[0]} in, Production {best_ind[1]} stb/day, GLR {best_ind[2]:.2f} SCF/STB")
     st.write(f"Predicted Minimal Pressure Gradient: {best_fitness_history[-1]:.2f} psi")
+    logger.info(f"Optimization complete: Conduit {best_ind[0]}, Production {best_ind[1]}, GLR {best_ind[2]:.2f}, Fitness {best_fitness_history[-1]:.2f}")
     
     # Plot fitness evolution
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(range(1, 21), best_fitness_history, marker='o')
+    ax.plot(range(1, n_generations + 1), best_fitness_history, marker='o')
     ax.set_xlabel('Generation')
     ax.set_ylabel('Best Pressure Gradient (psi)')
     ax.set_title('Optimization Progress: Best Fitness per Generation')
@@ -286,7 +301,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
     st.pyplot(fig)
     
     # Optimization graphs
-    base_values = df_ml[features].mean().to_dict()  # Use only features
+    base_values = df_ml[features].mean().to_dict()
     base_values['conduit_size'] = best_ind[0]
     base_values['production_rate'] = best_ind[1]
     base_values['GLR'] = best_ind[2]
@@ -295,7 +310,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
     production_rates = PRODUCTION_RATES
     X_test_prod = pd.DataFrame([base_values] * len(production_rates))
     X_test_prod['production_rate'] = production_rates
-    X_test_prod_scaled = scaler.transform(X_test_prod[features])  # Select features
+    X_test_prod_scaled = scaler.transform(X_test_prod[features])
     prod_predictions = model.predict(X_test_prod_scaled, verbose=0).flatten()
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(production_rates, prod_predictions, marker='o', label='Pressure Gradient vs. Production Rate')
@@ -312,7 +327,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
     glr_values = np.linspace(glr_min, glr_max, 100)
     X_test_glr = pd.DataFrame([base_values] * 100)
     X_test_glr['GLR'] = glr_values
-    X_test_glr_scaled = scaler.transform(X_test_glr[features])  # Select features
+    X_test_glr_scaled = scaler.transform(X_test_glr[features])
     glr_predictions = model.predict(X_test_glr_scaled, verbose=0).flatten()
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(glr_values, glr_predictions, label='Pressure Gradient vs. GLR')
@@ -328,7 +343,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
     depth_values = np.linspace(df_ml['D'].min(), df_ml['D'].max(), 100)
     X_test_depth = pd.DataFrame([base_values] * 100)
     X_test_depth['D'] = depth_values
-    X_test_depth_scaled = scaler.transform(X_test_depth[features])  # Select features
+    X_test_depth_scaled = scaler.transform(X_test_depth[features])
     depth_predictions = model.predict(X_test_depth_scaled, verbose=0).flatten()
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(depth_values, depth_predictions, label='Pressure Gradient vs. Depth')
@@ -382,6 +397,14 @@ def run_machine_learning():
         help="Number of random data points to generate per GLR curve."
     )
     
+    n_generations = st.number_input(
+        "Number of Generations for Optimization:",
+        min_value=1,
+        value=20,
+        step=1,
+        help="Number of generations for the genetic algorithm (used in Optimize Conditions)."
+    )
+    
     all_glr = st.checkbox("Use All GLRs for Selected Production Rate", value=True)
     glr = None
     
@@ -411,11 +434,18 @@ def run_machine_learning():
             
             st.success("Training complete!")
             
-            option = st.selectbox("Choose: 1. Parameter Analysis or 2. Optimize Conditions", ["1", "2"])
-            if option == "1":
+            option = st.selectbox(
+                "Choose Analysis Type:",
+                ["Parameter Analysis", "Optimize Conditions"],
+                key="analysis_type_selectbox"
+            )
+            logger.info(f"Selected analysis type: {option}")
+            if option == "Parameter Analysis":
+                logger.info("Running parameter analysis")
                 analyze_parameter_effects(model, scaler, df_ml)
-            elif option == "2":
-                optimize_neural_network_conditions(model, scaler, df_ml)
+            elif option == "Optimize Conditions":
+                logger.info("Running optimization")
+                optimize_neural_network_conditions(model, scaler, df_ml, n_generations)
         except Exception as e:
             st.error(f"Error in Machine Learning mode: {str(e)}")
             logger.error(f"Error in Machine Learning mode: {str(e)}")
