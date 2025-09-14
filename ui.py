@@ -111,6 +111,10 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
         )
         st.session_state.p2_finder_inputs['D'] = D
     
+    # Debug: Display D value before calculation
+    st.write(f"**Debug: Input Well Length (D)**: {D:.2f} ft")
+    logger.info(f"p2 Finder: Input D = {D}")
+    
     calculate = st.button("Calculate p2")
     
     if calculate:
@@ -143,12 +147,17 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                 logger.error(f"p2 Finder errors: {errors}")
             else:
                 try:
+                    # Debug: Log D before passing to calculate_results
+                    logger.info(f"p2 Finder: Passing D = {D} to calculate_results")
                     result = calculate_results(conduit_size, production_rate, glr, p1, D, reference_data)
                     if result[0] is None:
                         st.error("Calculation failed. Please check inputs and try again.")
                         logger.error("p2 Finder calculation returned None")
                     else:
                         y1, y2, p2, coeffs, interpolation_status, glr1, glr2 = result
+                        # Debug: Log calculated y1, y2, and D
+                        st.write(f"**Debug: Calculated y1**: {y1:.2f} ft, **y2**: {y2:.2f} ft, **Input D**: {D:.2f} ft")
+                        logger.info(f"p2 Finder: y1 = {y1}, y2 = {y2}, Input D = {D}")
                         st.subheader("p2 Finder Results")
                         st.write(f"**Depth y1**: {y1:.2f} ft")
                         st.write(f"**Depth y2**: {y2:.2f} ft")
@@ -690,6 +699,82 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                     logger.error(f"GLR plotting failed: {str(e)}")
     
     st.write("**Plotting Logs**")
+    st.write("Any warnings or informational messages will appear here.")
+
+def run_random_point_generator():
+    """UI for Random Point Generator: Generate random points for testing."""
+    logger.info("Running Random Point Generator UI")
+    
+    st.subheader("Random Point Generator")
+    num_points = st.number_input(
+        "Number of Points to Generate:",
+        min_value=1,
+        max_value=1000,
+        value=10,
+        step=1,
+        help="Enter the number of random points to generate."
+    )
+    
+    generate = st.button("Generate Points")
+    
+    if generate:
+        with st.spinner("Generating random points..."):
+            try:
+                points = run_random_point_generator(num_points)
+                if points is not None:
+                    st.subheader("Generated Points")
+                    st.write(points)
+                    st.session_state.random_points = points
+                    try:
+                        st.download_button(
+                            label="Download Points as CSV",
+                            data=points.to_csv(index=False),
+                            file_name="random_points.csv",
+                            mime="text/csv"
+                        )
+                    except Exception as e:
+                        st.error(f"Failed to export points as CSV: {str(e)}")
+                        logger.error(f"Random Point Generator CSV export failed: {str(e)}")
+                else:
+                    st.error("Failed to generate random points.")
+                    logger.error("Random Point Generator returned None")
+            except Exception as e:
+                st.error(f"Generation failed: {str(e)}")
+                logger.error(f"Random Point Generator failed: {str(e)}")
+    
+    st.write("**Generation Logs**")
+    st.write("Any warnings or informational messages will appear here.")
+
+def run_machine_learning():
+    """UI for Machine Learning: Train and predict using ML models."""
+    logger.info("Running Machine Learning UI")
+    
+    st.subheader("Machine Learning Model")
+    model_type = st.selectbox(
+        "Select Model Type:",
+        ["Linear Regression", "Random Forest", "Neural Network"],
+        help="Choose the machine learning model to train."
+    )
+    
+    train = st.button("Train Model")
+    
+    if train:
+        with st.spinner("Training model..."):
+            try:
+                model_results = run_machine_learning(model_type)
+                if model_results is not None:
+                    st.subheader("Model Results")
+                    st.write(f"**Model Type**: {model_type}")
+                    st.write(model_results)
+                    st.session_state.ml_results = model_results
+                else:
+                    st.error("Failed to train model.")
+                    logger.error("Machine Learning training returned None")
+            except Exception as e:
+                st.error(f"Training failed: {str(e)}")
+                logger.error(f"Machine Learning training failed: {str(e)}")
+    
+    st.write("**Training Logs**")
     st.write("Any warnings or informational messages will appear here.")
 
 def main():
