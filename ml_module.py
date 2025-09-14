@@ -13,6 +13,7 @@ from deap import base, creator, tools
 import random
 import requests
 import io
+import re
 from config import INTERPOLATION_RANGES, PRODUCTION_RATES, GITHUB_URL
 from utils import setup_logging
 from random_point_generator import generate_df, calc_y1, solve_p2
@@ -22,7 +23,7 @@ logger = setup_logging()
 
 def load_reference_data():
     """
-    Load reference Excel file from GitHub and parse into a list of dictionaries.
+    Load reference Excel file (referenceexcel.xlsx) from GitHub and parse into a list of dictionaries.
     Returns None if loading or parsing fails.
     """
     logger.info("Loading reference Excel file from GitHub...")
@@ -68,12 +69,13 @@ def load_reference_data():
                 logger.error(f"Error parsing row {index}: {e}")
                 continue
         if not data_ref:
-            st.error("No valid data parsed from the Excel file.")
+            st.error("No valid data parsed from referenceexcel.xlsx.")
+            logger.error("No valid data parsed from the Excel file.")
             return None
-        logger.info("Reference data loaded successfully.")
+        logger.info("Reference data loaded successfully from referenceexcel.xlsx.")
         return data_ref
     except Exception as e:
-        st.error(f"Error loading reference data: {str(e)}")
+        st.error(f"Error loading referenceexcel.xlsx from GitHub: {str(e)}")
         logger.error(f"Error loading reference Excel: {str(e)}")
         return None
 
@@ -206,10 +208,10 @@ def run_machine_learning():
     st.subheader("Mode 5: Machine Learning Analysis")
     
     # Load reference data from GitHub
-    with st.spinner("Loading reference data from GitHub..."):
+    with st.spinner("Loading referenceexcel.xlsx from GitHub..."):
         reference_data = load_reference_data()
         if reference_data is None:
-            st.error("Failed to load reference data.")
+            st.error("Failed to load referenceexcel.xlsx.")
             return
     
     # Input form
