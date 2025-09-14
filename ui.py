@@ -1,15 +1,15 @@
-# ui.py
 import streamlit as st
 import numpy as np
 from calculations import (calculate_results, calculate_tpr_points, calculate_ipr_fetkovich,
-                         calculate_ipr_vogel, calculate_ipr_composite, find_intersection)
+                         calculate_ipr_vogel, calculate_ipr_composite, find_intersection,
+                         fit_fetkovich_parameters)
 from plotting import (plot_results, plot_curves, plot_fetkovich_log_log,
                      plot_fetkovich_flow_after_flow, plot_glr_graphs)
 from validators import (validate_conduit_size, validate_production_rate, validate_glr,
                        validate_depth_and_pressure, validate_pressure, get_valid_options,
                        get_valid_glr_range, validate_fetkovich_parameters, validate_fetkovich_points)
 from utils import export_plot_to_png, setup_logging
-from config import COLORS
+from config import COLORS, INTERPOLATION_RANGES, PRODUCTION_RATES
 from random_point_generator import run_random_point_generator
 from ml_module import run_machine_learning
 
@@ -104,19 +104,20 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
         
         D = st.number_input(
             "Well Length, D (ft):",
-            min_value=0.0,
+            min_value=0.1,  # Prevent zero or negative
             max_value=31000.0,
             value=float(st.session_state.p2_finder_inputs['D']),
             step=100.0,
-            help="Enter the well length (y1 + D ≤ 31000 ft)."
+            help="Enter the well length (0.1 to 31000 ft, y1 + D ≤ 31000 ft)."
         )
-        st.session_state.p2_finder_inputs['D'] = D
+        st.session_state.p2_finder_inputs['D'] = float(D)  # Ensure float
     
     calculate = st.button("Calculate p2")
     
     if calculate:
         with st.spinner("Calculating..."):
             errors = []
+            logger.debug(f"p2 Finder inputs: conduit_size={conduit_size}, production_rate={production_rate}, glr={glr}, p1={p1}, D={D}")
             if not validate_conduit_size(conduit_size):
                 errors.append("Invalid conduit size. Must be 2.875 or 3.5 inches.")
             if not validate_production_rate(production_rate):
@@ -130,13 +131,16 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
                         min_glr, max_glr = ranges[0]
                         glr = min(max_glr, max(min_glr, glr))
                         st.info(f"GLR auto-corrected to {glr:.2f} scf/stb.")
+                        st.session_state.p2_finder_inputs['glr'] = glr
                 except Exception as e:
                     errors.append(f"Failed to validate GLR: {str(e)}")
                     logger.error(f"GLR validation error: {str(e)}")
             if not validate_pressure(p1, "wellhead pressure"):
                 errors.append("Invalid wellhead pressure. Must be between 0 and 4000 psi.")
             if not validate_depth_and_pressure(0, D):
-                errors.append("Invalid well length. Must be between 0 and 31000 ft.")
+                errors.append("Invalid well length. Must be between 0.1 and 31000 ft.")
+            if D <= 0:
+                errors.append("Well length D must be positive (greater than 0).")
             
             if errors:
                 for error in errors:
@@ -240,42 +244,42 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
         glr = st.number_input(
             "GLR (scf/stb):",
             min_value=0.0,
-            value=st.session_state.natural_flow_inputs['glr'],
+            value=float(st.session_state.natural_flow_inputs['glr']),
             step=100.0,
             help="Enter the Gas-Liquid Ratio."
         )
-        st.session_state.natural_flow_inputs['glr'] = glr
+        st.session_state.natural_flow_inputs['glr'] = float(glr)
         
         D = st.number_input(
             "Well Length, D (ft):",
-            min_value=0.0,
+            min_value=0.1,  # Prevent zero or negative
             max_value=31000.0,
-            value=st.session_state.natural_flow_inputs['D'],
+            value=float(st.session_state.natural_flow_inputs['D']),
             step=100.0,
-            help="Enter the well length (must satisfy y1 + D ≤ 31000 ft)."
+            help="Enter the well length (0.1 to 31000 ft, y1 + D ≤ 31000 ft)."
         )
-        st.session_state.natural_flow_inputs['D'] = D
+        st.session_state.natural_flow_inputs['D'] = float(D)  # Ensure float
     
     with col2:
         pwh = st.number_input(
             "Wellhead Pressure, Pwh (psi):",
             min_value=0.0,
             max_value=4000.0,
-            value=st.session_state.natural_flow_inputs['pwh'],
+            value=float(st.session_state.natural_flow_inputs['pwh']),
             step=10.0,
             help="Enter the wellhead pressure (0 to 4000 psi)."
         )
-        st.session_state.natural_flow_inputs['pwh'] = pwh
+        st.session_state.natural_flow_inputs['pwh'] = float(pwh)
         
         pr = st.number_input(
             "Reservoir Pressure, Pr (psi):",
             min_value=0.0,
             max_value=10000.0,
-            value=st.session_state.natural_flow_inputs['pr'],
+            value=float(st.session_state.natural_flow_inputs['pr']),
             step=10.0,
             help="Enter the reservoir pressure (0 to 10000 psi)."
         )
-        st.session_state.natural_flow_inputs['pr'] = pr
+        st.session_state.natural_flow_inputs['pr'] = float(pr)
     
     ipr_method = st.selectbox(
         "IPR Method:",
@@ -297,127 +301,128 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             c = st.number_input(
                 "Fetkovich C:",
                 min_value=0.0,
-                value=st.session_state.natural_flow_inputs['c'],
+                value=float(st.session_state.natural_flow_inputs['c']),
                 step=1e-6,
                 format="%.6e",
                 help="Enter positive value for C."
             )
-            st.session_state.natural_flow_inputs['c'] = c
+            st.session_state.natural_flow_inputs['c'] = float(c)
             
             n = st.number_input(
                 "Fetkovich n:",
                 min_value=0.0,
                 max_value=2.0,
-                value=st.session_state.natural_flow_inputs['n'],
+                value=float(st.session_state.natural_flow_inputs['n']),
                 step=0.01,
                 help="Enter value between 0 and 2 for n."
             )
-            st.session_state.natural_flow_inputs['n'] = n
+            st.session_state.natural_flow_inputs['n'] = float(n)
         else:
             col3, col4 = st.columns(2)
             with col3:
                 q01 = st.number_input(
                     "Q01 (stb/day):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['q01'],
+                    value=float(st.session_state.natural_flow_inputs['q01']),
                     step=10.0
                 )
-                st.session_state.natural_flow_inputs['q01'] = q01
+                st.session_state.natural_flow_inputs['q01'] = float(q01)
                 
                 pwf1 = st.number_input(
                     "Pwf1 (psi):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['pwf1'],
+                    value=float(st.session_state.natural_flow_inputs['pwf1']),
                     step=10.0
                 )
-                st.session_state.natural_flow_inputs['pwf1'] = pwf1
+                st.session_state.natural_flow_inputs['pwf1'] = float(pwf1)
                 
                 q02 = st.number_input(
                     "Q02 (stb/day):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['q02'],
+                    value=float(st.session_state.natural_flow_inputs['q02']),
                     step=10.0
                 )
-                st.session_state.natural_flow_inputs['q02'] = q02
+                st.session_state.natural_flow_inputs['q02'] = float(q02)
                 
                 pwf2 = st.number_input(
                     "Pwf2 (psi):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['pwf2'],
+                    value=float(st.session_state.natural_flow_inputs['pwf2']),
                     step=10.0
                 )
-                st.session_state.natural_flow_inputs['pwf2'] = pwf2
+                st.session_state.natural_flow_inputs['pwf2'] = float(pwf2)
             
             with col4:
                 q03 = st.number_input(
                     "Q03 (stb/day):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['q03'],
+                    value=float(st.session_state.natural_flow_inputs['q03']),
                     step=10.0
                 )
-                st.session_state.natural_flow_inputs['q03'] = q03
+                st.session_state.natural_flow_inputs['q03'] = float(q03)
                 
                 pwf3 = st.number_input(
                     "Pwf3 (psi):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['pwf3'],
+                    value=float(st.session_state.natural_flow_inputs['pwf3']),
                     step=10.0
                 )
-                st.session_state.natural_flow_inputs['pwf3'] = pwf3
+                st.session_state.natural_flow_inputs['pwf3'] = float(pwf3)
                 
                 q04 = st.number_input(
                     "Q04 (stb/day):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['q04'],
+                    value=float(st.session_state.natural_flow_inputs['q04']),
                     step=10.0
                 )
-                st.session_state.natural_flow_inputs['q04'] = q04
+                st.session_state.natural_flow_inputs['q04'] = float(q04)
                 
                 pwf4 = st.number_input(
                     "Pwf4 (psi):",
                     min_value=0.0,
-                    value=st.session_state.natural_flow_inputs['pwf4'],
+                    value=float(st.session_state.natural_flow_inputs['pwf4']),
                     step=10.0
                 )
-                st.session_state.natural_flow_inputs['pwf4'] = pwf4
+                st.session_state.natural_flow_inputs['pwf4'] = float(pwf4)
     
     elif ipr_method == "Vogel":
         q_max = st.number_input(
             "q_max (stb/day):",
             min_value=0.0,
-            value=st.session_state.natural_flow_inputs['q_max'],
+            value=float(st.session_state.natural_flow_inputs['q_max']),
             step=10.0,
             help="Enter the maximum production rate for Vogel method."
         )
-        st.session_state.natural_flow_inputs['q_max'] = q_max
+        st.session_state.natural_flow_inputs['q_max'] = float(q_max)
     
     elif ipr_method == "Composite":
         j_star = st.number_input(
             "J* (stb/day/psi):",
             min_value=0.0,
-            value=st.session_state.natural_flow_inputs['j_star'],
+            value=float(st.session_state.natural_flow_inputs['j_star']),
             step=0.01,
             help="Enter the productivity index above bubble point."
         )
-        st.session_state.natural_flow_inputs['j_star'] = j_star
+        st.session_state.natural_flow_inputs['j_star'] = float(j_star)
         
         p_b = st.number_input(
             "P_b (psi):",
             min_value=0.0,
-            value=st.session_state.natural_flow_inputs['p_b'],
+            value=float(st.session_state.natural_flow_inputs['p_b']),
             step=10.0,
             help="Enter the bubble point pressure."
         )
-        st.session_state.natural_flow_inputs['p_b'] = p_b
+        st.session_state.natural_flow_inputs['p_b'] = float(p_b)
     
     calculate = st.button("Calculate Natural Flow")
     
     if calculate:
         with st.spinner("Calculating..."):
             errors = []
+            logger.debug(f"Natural Flow Finder inputs: conduit_size={conduit_size}, glr={glr}, D={D}, pwh={pwh}, pr={pr}, ipr_method={ipr_method}")
             if not validate_conduit_size(conduit_size):
                 errors.append("Invalid conduit size. Must be 2.875 or 3.5 inches.")
-            if not validate_glr(conduit_size, 100, glr):  # Using average production rate for validation
+            if not validate_glr(conduit_size, 100, glr):
                 valid_range = get_valid_glr_range(conduit_size, 100)
                 errors.append(f"Invalid GLR. Valid ranges: {valid_range}")
             if not validate_pressure(pwh, "wellhead pressure"):
@@ -425,7 +430,9 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             if not validate_pressure(pr, "reservoir pressure", max_pressure=10000):
                 errors.append("Invalid reservoir pressure. Must be between 0 and 10000 psi.")
             if not validate_depth_and_pressure(0, D):
-                errors.append("Invalid well length. Must be such that y1 + D ≤ 31000 ft.")
+                errors.append("Invalid well length. Must be between 0.1 and 31000 ft.")
+            if D <= 0:
+                errors.append("Well length D must be positive (greater than 0).")
             
             if ipr_method == "Fetkovich":
                 if st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Enter C and n directly":
@@ -455,6 +462,10 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 try:
                     # Calculate TPR points
                     tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, reference_data)
+                    if tpr_points is None:
+                        st.error("Failed to calculate TPR points. Check input parameters.")
+                        logger.error("TPR points calculation returned None")
+                        return
                     
                     # Calculate IPR points and params
                     ipr_params = {}
@@ -463,7 +474,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         if st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Enter C and n directly":
                             c = st.session_state.natural_flow_inputs['c']
                             n = st.session_state.natural_flow_inputs['n']
-                            _, _, ipr_points, _ = calculate_ipr_fetkovich(pr, c=c, n=n)
+                            ipr_points = calculate_ipr_fetkovich(pr, c=c, n=n)
                         else:
                             fetkovich_points = [
                                 (st.session_state.natural_flow_inputs['q01'], st.session_state.natural_flow_inputs['pwf1']),
@@ -471,20 +482,31 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                                 (st.session_state.natural_flow_inputs['q03'], st.session_state.natural_flow_inputs['pwf3']),
                                 (st.session_state.natural_flow_inputs['q04'], st.session_state.natural_flow_inputs['pwf4'])
                             ]
-                            c, n, ipr_points, _ = calculate_ipr_fetkovich(pr, points=fetkovich_points)
+                            c, n = fit_fetkovich_parameters(pr, fetkovich_points)
+                            if c is None or n is None:
+                                st.error("Failed to fit Fetkovich parameters from points.")
+                                logger.error("Fetkovich parameter fitting returned None")
+                                return
+                            ipr_points = calculate_ipr_fetkovich(pr, c=c, n=n)
                         ipr_params = {'c': c, 'n': n}
                     elif ipr_method == "Vogel":
                         q_max = st.session_state.natural_flow_inputs['q_max']
-                        _, ipr_points = calculate_ipr_vogel(pr, q_max)
+                        ipr_points = calculate_ipr_vogel(pr, q_max)
                         ipr_params = {'q_max': q_max}
                     elif ipr_method == "Composite":
                         j_star = st.session_state.natural_flow_inputs['j_star']
                         p_b = st.session_state.natural_flow_inputs['p_b']
-                        _, _, ipr_points = calculate_ipr_composite(pr, j_star, p_b)
+                        ipr_points = calculate_ipr_composite(pr, j_star, p_b)
                         ipr_params = {'j_star': j_star, 'p_b': p_b}
+                    
+                    if ipr_points is None:
+                        st.error("Failed to calculate IPR points. Check input parameters.")
+                        logger.error("IPR points calculation returned None")
+                        return
                     
                     # Find intersection
                     intersection_q0, intersection_p = find_intersection(tpr_points, ipr_points, pr)
+                    logger.debug(f"Intersection calculated: Q0={intersection_q0}, P={intersection_p}")
                     
                     # Plot curves
                     fig = plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit_size, glr, D, pwh, pr, ipr_params)
@@ -637,9 +659,7 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                 logger.error(f"GLR Graph Drawer errors: {errors}")
             else:
                 try:
-                    # Placeholder: Assume plot_glr_graphs returns (fig, glr_data)
                     fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode=mode)
-                    glr_data = [...]  # Replace with actual glr_data from plot_glr_graphs
                     if fig is not None:
                         st.subheader("GLR Pressure vs Depth Curves")
                         st.pyplot(fig)
@@ -673,7 +693,7 @@ def main():
     apply_theme()
     
     # Placeholder for reference data and interpolation ranges
-    reference_data = st.session_state.get('REFERENCE_DATA', [...])  # Use session state if available
+    reference_data = st.session_state.get('REFERENCE_DATA', [...])
     interpolation_ranges = INTERPOLATION_RANGES
     production_rates = PRODUCTION_RATES
     
