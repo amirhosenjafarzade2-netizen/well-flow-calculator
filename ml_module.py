@@ -49,7 +49,9 @@ def load_reference_data():
                 continue
             parts = name.split()
             try:
-                conduit_size = float(parts[0])
+                conduit_size = round(float(parts[0]), 3)  # Round to avoid floating-point errors
+                if conduit_size not in [2.875, 3.5]:
+                    conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
                 production_rate = float(parts[2])
                 glr = float(parts[4].replace('glr', ''))
                 coefficients = {
@@ -73,7 +75,7 @@ def load_reference_data():
             st.error("No valid data parsed from referenceexcel.xlsx.")
             logger.error("No valid data parsed from the Excel file.")
             return None
-        logger.info("Reference data loaded successfully from referenceexcel.xlsx.")
+        logger.info(f"Reference data loaded: {len(data_ref)} entries")
         return data_ref
     except Exception as e:
         st.error(f"Error loading referenceexcel.xlsx from GitHub: {str(e)}")
@@ -85,12 +87,13 @@ def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=
     Generate ML data using random_point_generator's generate_df function.
     If glr is None, use all valid GLRs for the conduit size and production rate.
     """
+    conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))  # Ensure valid conduit_size
     dfs_ml = []
     required_cols = ["p1", "D", "y1", "y2", "p2"]
     
     filtered_data = [
         entry for entry in reference_data 
-        if entry['conduit_size'] == conduit_size 
+        if abs(entry['conduit_size'] - conduit_size) < 1e-6 
         and entry['production_rate'] == production_rate
         and (glr is None or entry['glr'] == glr)
     ]
@@ -108,16 +111,15 @@ def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=
         if df_temp is None or df_temp.empty:
             logger.warning(f"Failed to generate data for conduit={entry['conduit_size']}, prod={entry['production_rate']}, glr={entry['glr']}")
             continue
-        df_temp['conduit_size'] = entry['conduit_size']  # Ensure exact value
-        df_temp['production_rate'] = entry['production_rate']  # Ensure exact value
-        df_temp['GLR'] = entry['glr']  # Ensure exact value
+        df_temp['conduit_size'] = entry['conduit_size']  # Exact value from reference_data
+        df_temp['production_rate'] = entry['production_rate']  # Exact value
+        df_temp['GLR'] = entry['glr']  # Exact value
         dfs_ml.append(df_temp)
         progress.progress((i + 1) / len(filtered_data))
     
     df_ml = pd.concat(dfs_ml, ignore_index=True) if dfs_ml else None
     if df_ml is not None:
         # Validate discrete columns
-        df_ml['conduit_size'] = df_ml['conduit_size'].round(3).clip(lower=2.875, upper=3.5)
         df_ml['conduit_size'] = df_ml['conduit_size'].apply(lambda x: min([2.875, 3.5], key=lambda v: abs(v - x)))
         df_ml['production_rate'] = df_ml['production_rate'].apply(lambda x: min(PRODUCTION_RATES, key=lambda v: abs(v - x)))
         valid_glrs = get_valid_glrs(reference_data, conduit_size, production_rate)
@@ -125,6 +127,7 @@ def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=
             df_ml['GLR'] = df_ml['GLR'].apply(lambda x: min(valid_glrs, key=lambda v: abs(v - x)))
         else:
             logger.warning(f"No valid GLRs for validation in load_ml_data, using original GLR values")
+            st.warning(f"No valid GLRs for conduit {conduit_size} in, production {production_rate} stb/day in load_ml_data")
     return df_ml
 
 def train_neural_network(df_ml):
@@ -148,21 +151,19 @@ def train_neural_network(df_ml):
     ])
     model.compile(optimizer='adam', loss='mse')
     
-    # Progress bar for training
     st.write("Training neural network...")
     progress = st.progress(0)
     epochs = 50
     for epoch in range(epochs):
         model.fit(X_scaled, y, epochs=1, batch_size=32, validation_split=0.2, verbose=0)
         progress.progress((epoch + 1) / epochs)
-        time.sleep(0.05)  # Smooth progress bar animation
+        time.sleep(0.05)
     return model, scaler
 
 def get_valid_glrs(reference_data, conduit_size, production_rate):
     """
     Get the list of valid discrete GLR values for the given conduit_size and production_rate.
     """
-    # Round conduit_size to handle floating-point issues
     conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
     valid_glrs = sorted([
         entry['glr'] for entry in reference_data
@@ -171,7 +172,7 @@ def get_valid_glrs(reference_data, conduit_size, production_rate):
     logger.info(f"Valid GLRs for conduit_size={conduit_size}, production_rate={production_rate}: {valid_glrs}")
     return valid_glrs
 
-def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
+def run_sensitivity_analysis(model, scaler, df_ml, reference_data, conduit_size, production_rate):
     """
     Perform sensitivity analysis on the trained neural network model.
     """
@@ -184,23 +185,25 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
     
     features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
     
-    # Get base values, using mode for discrete parameters
-    base_values = {}
+    # Use user-selected conduit_size and production_rate, compute means for continuous parameters
+    base_values = {
+        'conduit_size': conduit_size,
+        'production_rate': production_rate
+    }
     for feature in features:
-        if feature in ['conduit_size', 'production_rate', 'GLR']:
-            # Use mode for discrete parameters
-            base_values[feature] = df_ml[feature].mode()[0]
-        else:
+        if feature not in ['conduit_size', 'production_rate', 'GLR']:
             base_values[feature] = df_ml[feature].mean()
     
-    # Validate discrete base values
-    base_values['conduit_size'] = min([2.875, 3.5], key=lambda x: abs(x - base_values['conduit_size']))
-    base_values['production_rate'] = min(PRODUCTION_RATES, key=lambda x: abs(x - base_values['production_rate']))
-    valid_glrs = get_valid_glrs(reference_data, base_values['conduit_size'], base_values['production_rate'])
-    if valid_glrs:
-        base_values['GLR'] = min(valid_glrs, key=lambda x: abs(x - base_values['GLR']))
+    # Set GLR to a valid value
+    valid_glrs = get_valid_glrs(reference_data, conduit_size, production_rate)
+    base_values['GLR'] = min(valid_glrs) if valid_glrs else 5000  # Fallback to 5000 if no valid GLRs
     
-    # Select parameters for sensitivity
+    # Debug: Log reference_data entries for conduit_size and production_rate
+    st.write("Debug: Reference Data for conduit_size and production_rate:", [
+        entry for entry in reference_data 
+        if abs(entry['conduit_size'] - conduit_size) < 1e-6 and entry['production_rate'] == production_rate
+    ])
+    
     st.write("Select parameters to analyze their impact on predicted pressure gradient (p2).")
     params_to_vary = st.multiselect(
         "Parameters to Vary:",
@@ -223,39 +226,32 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
         help="Number of points to evaluate for each parameter."
     )
     
-    # Debug: Display selected parameters and base values
     st.write("Debug: Selected Parameters:", params_to_vary)
     st.write("Debug: Base Values:", {k: round(v, 2) for k, v in base_values.items()})
     
     if st.button("Run Sensitivity Analysis"):
         with st.spinner("Performing sensitivity analysis..."):
-            # Progress bar for sensitivity analysis
             progress = st.progress(0)
             results = {}
             for i, param in enumerate(params_to_vary):
                 logger.info(f"Processing sensitivity analysis for parameter: {param}")
                 if param in ['conduit_size', 'production_rate', 'GLR']:
-                    # Use valid discrete values from reference_data
                     if param == 'conduit_size':
                         param_values = [2.875, 3.5]
                     elif param == 'production_rate':
                         param_values = PRODUCTION_RATES
                     else:  # GLR
-                        conduit = base_values['conduit_size']
-                        prod = base_values['production_rate']
-                        param_values = get_valid_glrs(reference_data, conduit, prod)
-                        st.write(f"Debug: Valid GLRs for conduit {conduit} in, production {prod} stb/day:", param_values)
+                        param_values = get_valid_glrs(reference_data, conduit_size, production_rate)
+                        st.write(f"Debug: Valid GLRs for conduit {conduit_size} in, production {production_rate} stb/day:", param_values)
                         if not param_values:
-                            st.warning(f"No valid GLRs for conduit {conduit} in, production {prod} stb/day. Skipping {param}.")
-                            logger.warning(f"No valid GLRs for conduit={conduit}, prod={prod}.")
+                            st.warning(f"No valid GLRs for conduit {conduit_size} in, production {production_rate} stb/day. Skipping {param}.")
+                            logger.warning(f"No valid GLRs for conduit={conduit_size}, prod={production_rate}.")
                             continue
                 else:
-                    # Continuous parameters
                     min_val = df_ml[param].min()
                     max_val = df_ml[param].max()
                     param_values = np.linspace(min_val, max_val, n_points)
                 
-                # Debug: Log parameter values
                 st.write(f"Debug: Parameter {param} values (first 5):", param_values[:5])
                 
                 X_sens = pd.DataFrame([base_values] * len(param_values))
@@ -264,13 +260,10 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
                 sens_predictions = model.predict(X_sens_scaled, verbose=0).flatten()
                 results[param] = (param_values, sens_predictions)
                 
-                # Update progress bar
                 progress.progress((i + 1) / len(params_to_vary))
-                time.sleep(0.05)  # Smooth progress bar animation
+                time.sleep(0.05)
             
-            # Display results
             for param, (values, predictions) in results.items():
-                # Debug: Confirm plot data
                 st.write(f"Debug: Plotting {param} with {len(values)} values")
                 fig, ax = plt.subplots(figsize=(8, 5))
                 ax.plot(values, predictions, marker='o', label=f'p2 vs. {param}')
@@ -282,7 +275,6 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
                 st.subheader(f"Sensitivity of p2 to {param.capitalize()}")
                 st.pyplot(fig)
                 
-                # Table of results
                 df_results = pd.DataFrame({
                     param.capitalize(): values,
                     'Predicted p2': predictions
@@ -317,7 +309,6 @@ def analyze_parameter_effects(model, scaler, df_ml):
             st.subheader(f"Effect of GLR (Conduit: {conduit_size} in, Production: {production_rate} stb/day)")
             st.pyplot(fig)
 
-    # Overall Pressure vs. GLR
     glr_values = np.linspace(0, 25000, 100)
     base_values = df_ml[features].mean().to_dict()
     X_test_glr = pd.DataFrame([base_values] * 100)
@@ -334,7 +325,6 @@ def analyze_parameter_effects(model, scaler, df_ml):
     st.subheader("Overall Pressure vs. GLR")
     st.pyplot(fig)
 
-    # Effect of D, production_rate, conduit_size
     for param in ['D', 'production_rate', 'conduit_size']:
         if param == 'conduit_size':
             param_values = [2.875, 3.5]
@@ -361,6 +351,7 @@ def get_valid_glr_range(conduit_size, production_rate):
     """
     Get the valid GLR range for the given conduit_size and production_rate.
     """
+    conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
     ranges = INTERPOLATION_RANGES.get((conduit_size, production_rate), [])
     return min(r[0] for r in ranges) if ranges else 0, max(r[1] for r in ranges) if ranges else 25000
 
@@ -383,11 +374,11 @@ def custom_mutation(individual, indpb, conduit_sizes, production_rates, valid_gl
     Custom mutation to ensure valid conduit_size, production_rate, and GLR.
     """
     if random.random() < indpb:
-        individual[0] = random.choice(conduit_sizes)  # conduit_size
+        individual[0] = random.choice(conduit_sizes)
     if random.random() < indpb:
-        individual[1] = random.choice(production_rates)  # production_rate
+        individual[1] = random.choice(production_rates)
     if random.random() < indpb and valid_glrs:
-        individual[2] = random.choice(valid_glrs)  # GLR
+        individual[2] = random.choice(valid_glrs)
     return individual,
 
 def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_generations=20):
@@ -399,7 +390,6 @@ def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_g
     conduit_sizes = [2.875, 3.5]
     production_rates = PRODUCTION_RATES
 
-    # Ensure DEAP classes are recreated to avoid conflicts
     if hasattr(creator, 'FitnessMin'):
         del creator.FitnessMin
     if hasattr(creator, 'Individual'):
@@ -410,7 +400,6 @@ def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_g
     toolbox = base.Toolbox()
     toolbox.register("attr_conduit", random.choice, conduit_sizes)
     toolbox.register("attr_prod", random.choice, production_rates)
-    # Use discrete GLR values from reference_data
     def attr_glr():
         conduit = random.choice(conduit_sizes)
         prod = random.choice(production_rates)
@@ -440,7 +429,6 @@ def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_g
         for child1, child2 in zip(offspring[::2], offspring[1::2]):
             if random.random() < 0.5:
                 toolbox.mate(child1, child2)
-                # Snap values to valid options after crossover
                 child1[0] = min(conduit_sizes, key=lambda x: abs(x - child1[0]))
                 child1[1] = min(production_rates, key=lambda x: abs(x - child1[1]))
                 valid_glrs = get_valid_glrs(reference_data, child1[0], child1[1])
@@ -473,7 +461,6 @@ def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_g
     st.write(f"Predicted Pressure Gradient: {best_fitness_history[-1]:.2f} psi")
     logger.info(f"Optimization complete: Conduit {best_ind[0]}, Production {best_ind[1]}, GLR {best_ind[2]:.2f}, Fitness {best_fitness_history[-1]:.2f}")
     
-    # Plot fitness evolution
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(range(1, n_generations + 1), best_fitness_history, marker='o')
     ax.set_xlabel('Generation')
@@ -483,13 +470,11 @@ def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_g
     st.subheader("Optimization Progress: Best Fitness per Generation")
     st.pyplot(fig)
     
-    # Optimization graphs
     base_values = df_ml[features].mean().to_dict()
     base_values['conduit_size'] = best_ind[0]
     base_values['production_rate'] = best_ind[1]
     base_values['GLR'] = best_ind[2]
     
-    # Pressure Gradient vs. Production Rate
     production_rates = PRODUCTION_RATES
     X_test_prod = pd.DataFrame([base_values] * len(production_rates))
     X_test_prod['production_rate'] = production_rates
@@ -505,7 +490,6 @@ def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_g
     st.subheader("Pressure Gradient vs. Production Rate (Optimization)")
     st.pyplot(fig)
     
-    # Pressure Gradient vs. GLR
     glr_min, glr_max = get_valid_glr_range(best_ind[0], best_ind[1])
     glr_values = np.linspace(glr_min, glr_max, 100)
     X_test_glr = pd.DataFrame([base_values] * 100)
@@ -522,7 +506,6 @@ def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_g
     st.subheader("Pressure Gradient vs. GLR (Optimization)")
     st.pyplot(fig)
     
-    # Pressure Gradient vs. Depth
     depth_values = np.linspace(df_ml['D'].min(), df_ml['D'].max(), 100)
     X_test_depth = pd.DataFrame([base_values] * 100)
     X_test_depth['D'] = depth_values
@@ -544,11 +527,9 @@ def run_machine_learning():
     """
     st.subheader("Mode 5: Machine Learning Analysis")
     
-    # Debug: Display session state to diagnose issues
     if st.checkbox("Show Session State for Debugging"):
         st.write("Session State:", {k: v for k, v in st.session_state.items() if k in ['model', 'scaler', 'df_ml', 'reference_data']})
     
-    # Initialize reference_data in session state if not already present
     if 'reference_data' not in st.session_state:
         with st.spinner("Loading referenceexcel.xlsx from GitHub..."):
             reference_data = load_reference_data()
@@ -559,7 +540,6 @@ def run_machine_learning():
     else:
         reference_data = st.session_state.reference_data
     
-    # Input form
     st.subheader("Input Parameters")
     col1, col2 = st.columns(2)
     
@@ -633,7 +613,6 @@ def run_machine_learning():
             st.error(f"Error in Machine Learning mode: {str(e)}")
             logger.error(f"Error in Machine Learning mode: {str(e)}")
 
-    # Debug: Confirm analysis type selectbox options
     st.write("Debug: Available Analysis Types: ['Parameter Analysis', 'Optimize Conditions', 'Sensitivity Analysis']")
     if 'model' in st.session_state and 'reference_data' in st.session_state:
         option = st.selectbox(
@@ -651,7 +630,7 @@ def run_machine_learning():
                 optimize_neural_network_conditions(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, st.session_state.reference_data, n_generations)
             elif option == "Sensitivity Analysis":
                 logger.info("Running sensitivity analysis")
-                run_sensitivity_analysis(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, st.session_state.reference_data)
+                run_sensitivity_analysis(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, st.session_state.reference_data, conduit_size, production_rate)
         except Exception as e:
             st.error(f"Error in analysis: {str(e)}")
             logger.error(f"Error in analysis: {str(e)}")
