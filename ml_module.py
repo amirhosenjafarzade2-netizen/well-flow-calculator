@@ -11,45 +11,105 @@ from tensorflow.keras.layers import Dense
 from sklearn.preprocessing import StandardScaler
 from deap import base, creator, tools
 import random
-from config import INTERPOLATION_RANGES, PRODUCTION_RATES, GITHUB_URL
-from utils import setup_logging
-from random_point_generator import parse_cell, calc_y1, solve_p2  # Reuse generation functions
 import requests
 import io
+from config import INTERPOLATION_RANGES, PRODUCTION_RATES, GITHUB_URL
+from utils import setup_logging
+from random_point_generator import generate_df, calc_y1, solve_p2
+from validators import validate_conduit_size, validate_production_rate, get_valid_options
 
 logger = setup_logging()
 
-def load_ml_data(df_coeffs, row1, col1, row2, col2, row3, col3, choice, polynomials, file_names):
+def load_reference_data():
+    """
+    Load reference Excel file from GitHub and parse into a list of dictionaries.
+    Returns None if loading or parsing fails.
+    """
+    logger.info("Loading reference Excel file from GitHub...")
+    try:
+        response = requests.get(GITHUB_URL)
+        response.raise_for_status()
+        file_like_object = io.BytesIO(response.content)
+        df_ref = pd.read_excel(file_like_object, header=None, engine='openpyxl')
+        if df_ref.shape[1] < 6:
+            st.error("Invalid Excel file: Must have at least 6 columns (name + 5 or 6 coefficients).")
+            logger.error("Excel file has insufficient columns.")
+            return None
+        data_ref = []
+        for index, row in df_ref.iterrows():
+            name = row[0]
+            if pd.isna(name) or isinstance(name, (int, float)):
+                logger.warning(f"Skipping row {index} due to invalid name: {name}")
+                continue
+            name = str(name).strip()
+            if not re.match(r'[\d.]+\s*in\s*\d+\s*stb-day\s*\d+\s*glr', name.lower()):
+                logger.warning(f"Failed to parse reference data name: {name}")
+                continue
+            parts = name.split()
+            try:
+                conduit_size = float(parts[0])
+                production_rate = float(parts[2])
+                glr = float(parts[4].replace('glr', ''))
+                coefficients = {
+                    'a': float(row[1]),
+                    'b': float(row[2]),
+                    'c': float(row[3]),
+                    'd': float(row[4]),
+                    'e': float(row[5]),
+                    'f': float(row[6]) if len(row) > 6 and pd.notna(row[6]) else 0.0
+                }
+                data_ref.append({
+                    'conduit_size': conduit_size,
+                    'production_rate': production_rate,
+                    'glr': glr,
+                    'coefficients': coefficients
+                })
+            except (ValueError, TypeError) as e:
+                logger.error(f"Error parsing row {index}: {e}")
+                continue
+        if not data_ref:
+            st.error("No valid data parsed from the Excel file.")
+            return None
+        logger.info("Reference data loaded successfully.")
+        return data_ref
+    except Exception as e:
+        st.error(f"Error loading reference data: {str(e)}")
+        logger.error(f"Error loading reference Excel: {str(e)}")
+        return None
+
+def load_ml_data(reference_data, conduit_size, num_points, production_rate=None, glr=None, min_D=1000):
+    """
+    Generate ML data using random_point_generator's generate_df function.
+    If production_rate or glr is None, use all valid combinations for the conduit size.
+    """
     dfs_ml = []
     required_cols = ["p1", "D", "y1", "y2", "p2"]
-    for poly_idx, (coeffs, file_name) in enumerate(zip(polynomials, file_names)):
-        match = pd.Series(file_name.lower()).str.extract(r'([\d.]+)\s*in\s*(\d+)\s*stb-day\s*(\d+)\s*glr', expand=False).iloc[0]
-        if match.isna().any():
+    
+    filtered_data = [
+        entry for entry in reference_data 
+        if entry['conduit_size'] == conduit_size 
+        and (production_rate is None or entry['production_rate'] == production_rate)
+        and (glr is None or entry['glr'] == glr)
+    ]
+    
+    if not filtered_data:
+        st.error(f"No data found for conduit size {conduit_size}" + 
+                 (f", production rate {production_rate}" if production_rate else "") +
+                 (f", GLR {glr}" if glr else ""))
+        logger.error(f"No data found for conduit_size={conduit_size}, production_rate={production_rate}, glr={glr}")
+        return None
+    
+    for entry in filtered_data:
+        coeffs = [entry['coefficients'][k] for k in sorted(entry['coefficients'].keys())]
+        df_temp = generate_df(coeffs, num_points, min_D)
+        if df_temp is None or df_temp.empty:
+            logger.warning(f"Failed to generate data for conduit={entry['conduit_size']}, prod={entry['production_rate']}, glr={entry['glr']}")
             continue
-        conduit_size = float(match[0])
-        production_rate = float(match[1])
-        glr = float(match[2])
-        # Generate points internally (like mode 4, but in memory)
-        df_temp = pd.DataFrame(columns=required_cols)
-        while len(df_temp) < 10000:  # Generate excess to sample from
-            p1 = np.random.uniform(0, 4000)
-            y1 = calc_y1(p1, coeffs)
-            if y1 is None or not (0 <= y1 <= 31000):
-                continue
-            D = np.random.uniform(0, 31000 - y1)  # min_D=0 for ML
-            y2 = y1 + D
-            p2 = solve_p2(y2, p1, coeffs)
-            if p2 is not None and 0 <= p2 <= 4000:
-                df_temp = pd.concat([df_temp, pd.DataFrame({'p1': [p1], 'D': [D], 'y1': [y1], 'y2': [y2], 'p2': [p2]})], ignore_index=True)
-        df_temp = df_temp[required_cols].dropna()
-        if choice != 'all':
-            n_rows = int(choice)
-            if 0 < n_rows < len(df_temp):
-                df_temp = df_temp.sample(n=n_rows)
-        df_temp['conduit_size'] = conduit_size
-        df_temp['production_rate'] = production_rate
-        df_temp['GLR'] = glr
+        df_temp['conduit_size'] = entry['conduit_size']
+        df_temp['production_rate'] = entry['production_rate']
+        df_temp['GLR'] = entry['glr']
         dfs_ml.append(df_temp)
+    
     return pd.concat(dfs_ml, ignore_index=True) if dfs_ml else None
 
 def train_neural_network(df_ml):
@@ -71,8 +131,6 @@ def train_neural_network(df_ml):
     return model, scaler
 
 def analyze_parameter_effects(model, scaler, df_ml):
-    # Adapt plots from snippet, display with st.pyplot
-    # Example for one plot (repeat for others)
     base_values = df_ml.mean().to_dict()
     production_rates = PRODUCTION_RATES
     X_test_prod = pd.DataFrame([base_values] * len(production_rates))
@@ -88,7 +146,6 @@ def analyze_parameter_effects(model, scaler, df_ml):
     ax.grid(True)
     ax.legend()
     st.pyplot(fig)
-    # Add similar for GLR, Depth, etc.
 
 def get_valid_glr_range(conduit_size, production_rate):
     ranges = INTERPOLATION_RANGES.get((conduit_size, production_rate), [])
@@ -97,7 +154,7 @@ def get_valid_glr_range(conduit_size, production_rate):
 def evaluate_individual(individual, model, scaler):
     conduit_size, production_rate, glr = individual
     input_data = pd.DataFrame([{
-        'p1': 1000, 'D': 1000, 'y1': 5000, 'y2': 6000,  # Defaults
+        'p1': 1000, 'D': 1000, 'y1': 5000, 'y2': 6000,
         'conduit_size': conduit_size, 'production_rate': production_rate, 'GLR': glr
     }])
     input_scaled = scaler.transform(input_data)
@@ -144,62 +201,75 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
     
     best_ind = tools.selBest(pop, 1)[0]
     st.write(f"Optimal: Conduit {best_ind[0]}, Prod {best_ind[1]}, GLR {best_ind[2]:.2f}")
-    # Add plots similar to analysis
 
 def run_machine_learning():
     st.subheader("Mode 5: Machine Learning Analysis")
     
-    # Load the coefficient Excel from GitHub (no uploader)
-    with st.spinner("Loading coefficient Excel from GitHub..."):
-        try:
-            response = requests.get(GITHUB_URL)
-            response.raise_for_status()
-            file_like_object = io.BytesIO(response.content)
-            df_coeffs = pd.read_excel(file_like_object, header=None, engine='openpyxl')
-            st.success("Coefficient data loaded successfully from GitHub.")
-        except Exception as e:
-            st.error(f"Error loading coefficient Excel from GitHub: {str(e)}")
-            logger.error(f"Error loading reference Excel: {str(e)}")
+    # Load reference data from GitHub
+    with st.spinner("Loading reference data from GitHub..."):
+        reference_data = load_reference_data()
+        if reference_data is None:
+            st.error("Failed to load reference data.")
             return
-
-    # Cell inputs same as before
-    cell1 = st.text_input("First cell (e.g., A1):")
-    cell2 = st.text_input("Second cell (e.g., G1):")
-    cell3 = st.text_input("Third cell (e.g., A2):")
-    if not (cell1 and cell2 and cell3):
-        return
-
-    try:
-        row1, col1 = parse_cell(cell1)
-        row2, col2 = parse_cell(cell2)
-        row3, col3 = parse_cell(cell3)
-        polynomials = []
-        file_names = []
-        for row in range(row1, row3 + 1):
-            name = df_coeffs.iloc[row, col1]
-            coeffs = df_coeffs.iloc[row, col1 + 1:col2 + 1].tolist()
-            polynomials.append(coeffs)
-            file_names.append(str(name))
-    except Exception as e:
-        st.error(f"Error processing inputs: {str(e)}")
-        return
-
-    choice = st.number_input("Number of random rows per polynomial (or 0 for all):", min_value=0, value=1000)
-    if choice == 0:
-        choice = 'all'
-
-    if st.button("Load Data and Train"):
+    
+    # Input form
+    st.subheader("Input Parameters")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        conduit_size = st.selectbox(
+            "Conduit Size (in):",
+            [2.875, 3.5],
+            help="Select the conduit size (2.875 or 3.5 inches)."
+        )
+        if not validate_conduit_size(conduit_size):
+            return
+    
+    with col2:
+        num_points = st.number_input(
+            "Number of Random Points per GLR Curve:",
+            min_value=1,
+            value=1000,
+            step=100,
+            help="Number of random data points to generate per GLR curve."
+        )
+    
+    all_glr = st.checkbox("Use All GLRs for Selected Conduit Size", value=True)
+    production_rate = None
+    glr = None
+    
+    if not all_glr:
+        valid_prates, valid_glrs = get_valid_options(conduit_size)
+        valid_prates = [float(pr) for pr in valid_prates]
+        production_rate = st.selectbox(
+            "Production Rate (stb/day):",
+            valid_prates,
+            help="Select the production rate (50 to 600 stb/day)."
+        )
+        if not validate_production_rate(production_rate):
+            return
+        valid_glrs = valid_glrs.get(production_rate, [])
+        if valid_glrs:
+            glr = st.selectbox(
+                "GLR (scf/stb):",
+                [float(g) for g in valid_glrs],
+                help="Select a valid GLR for the chosen conduit size and production rate."
+            )
+    
+    if st.button("Generate Data and Train"):
         with st.spinner("Generating data and training..."):
-            df_ml = load_ml_data(df_coeffs, row1, col1, row2, col2, row3, col3, choice, polynomials, file_names)
+            df_ml = load_ml_data(reference_data, conduit_size, num_points, production_rate, glr)
             if df_ml is None or df_ml.empty:
                 st.error("Failed to generate ML data.")
                 return
+            st.subheader("Generated Data Preview")
+            st.dataframe(df_ml.head())
             model, scaler = train_neural_network(df_ml)
             if model is None:
                 st.error("Training failed.")
                 return
             st.success("Training complete!")
-
+        
         option = st.selectbox("Choose: 1. Parameter Analysis or 2. Optimize Conditions", ["1", "2"])
         if option == "1":
             analyze_parameter_effects(model, scaler, df_ml)
