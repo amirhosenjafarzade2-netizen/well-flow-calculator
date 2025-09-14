@@ -400,12 +400,16 @@ def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_g
 def run_machine_learning():
     st.subheader("Mode 5: Machine Learning Analysis")
     
-    # Load reference data from GitHub
-    with st.spinner("Loading referenceexcel.xlsx from GitHub..."):
-        reference_data = load_reference_data()
-        if reference_data is None:
-            st.error("Failed to load referenceexcel.xlsx.")
-            return
+    # Initialize reference_data in session state if not already present
+    if 'reference_data' not in st.session_state:
+        with st.spinner("Loading referenceexcel.xlsx from GitHub..."):
+            reference_data = load_reference_data()
+            if reference_data is None:
+                st.error("Failed to load referenceexcel.xlsx.")
+                return
+            st.session_state.reference_data = reference_data
+    else:
+        reference_data = st.session_state.reference_data
     
     # Input form
     st.subheader("Input Parameters")
@@ -461,12 +465,11 @@ def run_machine_learning():
     
     if st.button("Generate Data and Train"):
         with st.spinner("Generating data..."):
-            df_ml = load_ml_data(reference_data, conduit_size, production_rate, num_points, glr)
+            df_ml = load_ml_data(st.session_state.reference_data, conduit_size, production_rate, num_points, glr)
             if df_ml is None or df_ml.empty:
                 st.error("Failed to generate ML data.")
                 return
             st.session_state.df_ml = df_ml
-            st.session_state.reference_data = reference_data
             st.subheader("Generated Data Preview")
             st.dataframe(df_ml.head())
         
@@ -482,7 +485,7 @@ def run_machine_learning():
             st.error(f"Error in Machine Learning mode: {str(e)}")
             logger.error(f"Error in Machine Learning mode: {str(e)}")
 
-    if 'model' in st.session_state:
+    if 'model' in st.session_state and 'reference_data' in st.session_state:
         option = st.selectbox(
             "Choose Analysis Type:",
             ["Parameter Analysis", "Optimize Conditions"],
@@ -499,3 +502,5 @@ def run_machine_learning():
         except Exception as e:
             st.error(f"Error in analysis: {str(e)}")
             logger.error(f"Error in analysis: {str(e)}")
+    else:
+        st.warning("Please generate data and train the model before selecting an analysis type.")
