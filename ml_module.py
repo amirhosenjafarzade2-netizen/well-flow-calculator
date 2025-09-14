@@ -151,10 +151,12 @@ def get_valid_glrs(reference_data, conduit_size, production_rate):
     """
     Get the list of valid discrete GLR values for the given conduit_size and production_rate.
     """
-    return sorted([
+    valid_glrs = sorted([
         entry['glr'] for entry in reference_data
         if entry['conduit_size'] == conduit_size and entry['production_rate'] == production_rate
     ])
+    logger.info(f"Valid GLRs for conduit_size={conduit_size}, production_rate={production_rate}: {valid_glrs}")
+    return valid_glrs
 
 def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
     """
@@ -195,8 +197,9 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
         help="Number of points to evaluate for each parameter."
     )
     
-    # Debug: Display selected parameters
+    # Debug: Display selected parameters and base values
     st.write("Debug: Selected Parameters:", params_to_vary)
+    st.write("Debug: Base Values:", {k: round(v, 2) for k, v in base_values.items()})
     
     if st.button("Run Sensitivity Analysis"):
         with st.spinner("Performing sensitivity analysis..."):
@@ -212,8 +215,11 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
                     elif param == 'production_rate':
                         param_values = PRODUCTION_RATES
                     else:  # GLR
-                        conduit = base_values['conduit_size']
-                        prod = base_values['production_rate']
+                        conduit = base_values.get('conduit_size', 2.875)
+                        prod = base_values.get('production_rate', PRODUCTION_RATES[0])
+                        # Ensure conduit and prod are valid
+                        conduit = min([2.875, 3.5], key=lambda x: abs(x - conduit))
+                        prod = min(PRODUCTION_RATES, key=lambda x: abs(x - prod))
                         param_values = get_valid_glrs(reference_data, conduit, prod)
                         if not param_values:
                             st.warning(f"No valid GLRs for conduit {conduit} in, production {prod} stb/day. Skipping {param}.")
@@ -226,7 +232,7 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data):
                     param_values = np.linspace(min_val, max_val, n_points)
                 
                 # Debug: Log parameter values
-                st.write(f"Debug: Parameter {param} values:", param_values[:5], "...")
+                st.write(f"Debug: Parameter {param} values (first 5):", param_values[:5])
                 
                 X_sens = pd.DataFrame([base_values] * len(param_values))
                 X_sens[param] = param_values
