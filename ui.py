@@ -1,4 +1,3 @@
-# ui.py
 import streamlit as st
 import numpy as np
 from calculations import (calculate_results, calculate_tpr_points, calculate_ipr_fetkovich,
@@ -321,15 +320,18 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     "Q01 (stb/day):",
                     min_value=0.0,
                     value=st.session_state.natural_flow_inputs['q01'],
-                    step=10.0
+                    step=10.0,
+                    key="q01"
                 )
                 st.session_state.natural_flow_inputs['q01'] = q01
                 
                 pwf1 = st.number_input(
                     "Pwf1 (psi):",
                     min_value=0.0,
+                    max_value=float(pr),
                     value=st.session_state.natural_flow_inputs['pwf1'],
-                    step=10.0
+                    step=10.0,
+                    key="pwf1"
                 )
                 st.session_state.natural_flow_inputs['pwf1'] = pwf1
                 
@@ -337,15 +339,18 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     "Q02 (stb/day):",
                     min_value=0.0,
                     value=st.session_state.natural_flow_inputs['q02'],
-                    step=10.0
+                    step=10.0,
+                    key="q02"
                 )
                 st.session_state.natural_flow_inputs['q02'] = q02
                 
                 pwf2 = st.number_input(
                     "Pwf2 (psi):",
                     min_value=0.0,
+                    max_value=float(pr),
                     value=st.session_state.natural_flow_inputs['pwf2'],
-                    step=10.0
+                    step=10.0,
+                    key="pwf2"
                 )
                 st.session_state.natural_flow_inputs['pwf2'] = pwf2
             
@@ -354,15 +359,18 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     "Q03 (stb/day):",
                     min_value=0.0,
                     value=st.session_state.natural_flow_inputs['q03'],
-                    step=10.0
+                    step=10.0,
+                    key="q03"
                 )
                 st.session_state.natural_flow_inputs['q03'] = q03
                 
                 pwf3 = st.number_input(
                     "Pwf3 (psi):",
                     min_value=0.0,
+                    max_value=float(pr),
                     value=st.session_state.natural_flow_inputs['pwf3'],
-                    step=10.0
+                    step=10.0,
+                    key="pwf3"
                 )
                 st.session_state.natural_flow_inputs['pwf3'] = pwf3
                 
@@ -370,15 +378,18 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     "Q04 (stb/day):",
                     min_value=0.0,
                     value=st.session_state.natural_flow_inputs['q04'],
-                    step=10.0
+                    step=10.0,
+                    key="q04"
                 )
                 st.session_state.natural_flow_inputs['q04'] = q04
                 
                 pwf4 = st.number_input(
                     "Pwf4 (psi):",
                     min_value=0.0,
+                    max_value=float(pr),
                     value=st.session_state.natural_flow_inputs['pwf4'],
-                    step=10.0
+                    step=10.0,
+                    key="pwf4"
                 )
                 st.session_state.natural_flow_inputs['pwf4'] = pwf4
     
@@ -429,7 +440,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                 errors.append("Invalid well length. Must be such that y1 + D ≤ 31000 ft.")
             
             if ipr_method == "Fetkovich":
-                if st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Enter C and n directly":
+                if fetkovich_input_method == "Enter C and n directly":
                     if not validate_fetkovich_parameters(st.session_state.natural_flow_inputs['c'], st.session_state.natural_flow_inputs['n']):
                         errors.append("Invalid Fetkovich parameters C or n.")
                 else:
@@ -439,9 +450,9 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         (st.session_state.natural_flow_inputs['q03'], st.session_state.natural_flow_inputs['pwf3']),
                         (st.session_state.natural_flow_inputs['q04'], st.session_state.natural_flow_inputs['pwf4'])
                     ]
-                    fetkovich_points = [p for p in fetkovich_points if p[0] > 0 and p[1] > 0]  # Filter valid points
+                    fetkovich_points = [p for p in fetkovich_points if p[0] > 0 and p[1] > 0]
                     if not validate_fetkovich_points(fetkovich_points, pr):
-                        errors.append("Invalid Fetkovich test points.")
+                        errors.append("Invalid Fetkovich test points. Ensure at least two valid points with Q0 > 0 and 0 < Pwf ≤ Pr.")
             elif ipr_method == "Vogel":
                 if st.session_state.natural_flow_inputs['q_max'] <= 0:
                     errors.append("Invalid q_max for Vogel method. Must be positive.")
@@ -456,13 +467,21 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             else:
                 try:
                     # Calculate TPR points
+                    if reference_data is None or reference_data == [...]:
+                        st.error("Reference data is missing or invalid. Please check data initialization.")
+                        logger.error("Reference data is None or placeholder")
+                        return
                     tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, reference_data)
+                    if tpr_points is None:
+                        st.error("Failed to calculate TPR points. Check input data and reference data.")
+                        logger.error("TPR points calculation returned None")
+                        return
                     
                     # Calculate IPR points and params
                     ipr_params = {}
                     ipr_points = []
                     if ipr_method == "Fetkovich":
-                        if st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Enter C and n directly":
+                        if fetkovich_input_method == "Enter C and n directly":
                             c = st.session_state.natural_flow_inputs['c']
                             n = st.session_state.natural_flow_inputs['n']
                             ipr_points = calculate_ipr_fetkovich(pr, c=c, n=n)
@@ -473,11 +492,11 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                                 (st.session_state.natural_flow_inputs['q03'], st.session_state.natural_flow_inputs['pwf3']),
                                 (st.session_state.natural_flow_inputs['q04'], st.session_state.natural_flow_inputs['pwf4'])
                             ]
-                            fetkovich_points = [p for p in fetkovich_points if p[0] > 0 and p[1] > 0]  # Filter valid points
+                            fetkovich_points = [p for p in fetkovich_points if p[0] > 0 and p[1] > 0]
                             c, n = fit_fetkovich_parameters(pr, fetkovich_points)
                             if c is None or n is None:
                                 st.error("Failed to fit Fetkovich parameters from points. Try adjusting points or using direct C/n input.")
-                                logger.warning("Fetkovich fit failed - displaying debug info")
+                                logger.warning(f"Fetkovich fit failed - points: {fetkovich_points}")
                                 st.write("Debug: Provided points:", fetkovich_points)
                                 return
                             st.info(f"Fitted Fetkovich parameters: C = {c:.6f}, n = {n:.2f}")
@@ -492,6 +511,11 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         p_b = st.session_state.natural_flow_inputs['p_b']
                         ipr_points = calculate_ipr_composite(pr, j_star, p_b)
                         ipr_params = {'j_star': j_star, 'p_b': p_b}
+                    
+                    if ipr_points is None:
+                        st.error(f"Failed to calculate IPR points for {ipr_method} method.")
+                        logger.error(f"IPR points calculation returned None for {ipr_method}")
+                        return
                     
                     # Find intersection
                     intersection_q0, intersection_p = find_intersection(tpr_points, ipr_points, pr)
@@ -517,7 +541,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                             st.warning("Curves plot is empty - cannot export.")
                         
                         # Additional plots for Fetkovich with points
-                        if ipr_method == "Fetkovich" and st.session_state.natural_flow_inputs['fetkovich_input_method'] == "Calculate C and n from points":
+                        if ipr_method == "Fetkovich" and fetkovich_input_method == "Calculate C and n from points":
                             try:
                                 log_log_fig = plot_fetkovich_log_log(fetkovich_points, pr, c, n, mode='color')
                                 if log_log_fig is not None:
@@ -543,31 +567,30 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                                 st.warning(f"Failed to plot Fetkovich log-log graph: {str(e)}")
                                 logger.error(f"Log-log plotting failed: {str(e)}")
                             
-                            if len(fetkovich_points) >= 4:
-                                try:
-                                    flow_fig = plot_fetkovich_flow_after_flow(fetkovich_points, pr, c, n, mode='color')
-                                    if flow_fig is not None:
-                                        st.subheader("Fetkovich Flow-After-Flow Plot")
-                                        st.pyplot(flow_fig)
-                                        
-                                        if len(flow_fig.axes) > 0 and len(flow_fig.axes[0].lines) > 0:
-                                            try:
-                                                st.download_button(
-                                                    label="Download Flow-After-Flow Plot as PNG",
-                                                    data=export_plot_to_png(flow_fig),
-                                                    file_name="fetkovich_flow_after_flow_plot.png",
-                                                    mime="image/png"
-                                                )
-                                            except Exception as e:
-                                                st.error(f"Failed to export flow-after-flow plot as PNG: {str(e)}")
-                                                logger.error(f"Flow-after-flow PNG export failed: {str(e)}")
-                                        else:
-                                            st.warning("Flow-after-flow plot is empty - cannot export.")
+                            try:
+                                flow_fig = plot_fetkovich_flow_after_flow(fetkovich_points, pr, c, n, mode='color')
+                                if flow_fig is not None:
+                                    st.subheader("Fetkovich Flow-After-Flow Plot")
+                                    st.pyplot(flow_fig)
+                                    
+                                    if len(flow_fig.axes) > 0 and len(flow_fig.axes[0].lines) > 0:
+                                        try:
+                                            st.download_button(
+                                                label="Download Flow-After-Flow Plot as PNG",
+                                                data=export_plot_to_png(flow_fig),
+                                                file_name="fetkovich_flow_after_flow_plot.png",
+                                                mime="image/png"
+                                            )
+                                        except Exception as e:
+                                            st.error(f"Failed to export flow-after-flow plot as PNG: {str(e)}")
+                                            logger.error(f"Flow-after-flow PNG export failed: {str(e)}")
                                     else:
-                                        st.warning("Failed to generate Fetkovich flow-after-flow plot.")
-                                except Exception as e:
-                                    st.warning(f"Failed to plot Fetkovich flow-after-flow graph: {str(e)}")
-                                    logger.error(f"Flow-after-flow plotting failed: {str(e)}")
+                                        st.warning("Flow-after-flow plot is empty - cannot export.")
+                                else:
+                                    st.warning("Failed to generate Fetkovich flow-after-flow plot.")
+                            except Exception as e:
+                                st.warning(f"Failed to plot Fetkovich flow-after-flow graph: {str(e)}")
+                                logger.error(f"Flow-after-flow plotting failed: {str(e)}")
                     
                     # Display intersection results
                     st.subheader("Point of Natural Flow Results")
@@ -647,7 +670,6 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
                 logger.error(f"GLR Graph Drawer errors: {errors}")
             else:
                 try:
-                    # Placeholder: Assume plot_glr_graphs returns (fig, glr_data)
                     fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode=mode)
                     glr_data = [...]  # Replace with actual glr_data from plot_glr_graphs
                     if fig is not None:
