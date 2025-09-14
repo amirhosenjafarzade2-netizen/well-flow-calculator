@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from data_loader import load_reference_data
-from config import PRODUCTION_RATES, INTERPOLATION_RANGES
+from config import PRODUCTION_RATES, INTERPOLATION_RANGES, COLORS
 from utils import export_plot_to_png, setup_logging
 import xlsxwriter
 
@@ -18,19 +18,24 @@ def run_random_point_generator():
     if "REFERENCE_DATA" not in st.session_state:
         logger.info("Loading reference data for Random Point Generator...")
         reference_data = load_reference_data()
-        if reference_data is None or reference_data.empty:
-            st.error("Failed to load reference data. Please check the Excel file.")
+        if reference_data is None or not reference_data:
+            st.error("Failed to load reference data. Please check the Excel file or GitHub URL.")
             logger.error("Failed to load reference data for Random Point Generator.")
             return
         st.session_state.REFERENCE_DATA = reference_data
     else:
         reference_data = st.session_state.REFERENCE_DATA
 
+    # Extract valid values from REFERENCE_DATA
+    valid_conduit_sizes = sorted(set([entry['conduit_size'] for entry in reference_data]))
+    valid_production_rates = sorted(set([entry['production_rate'] for entry in reference_data]))
+    valid_glrs = sorted(set([entry['glr'] for entry in reference_data]))
+
     # Initialize session state
     if 'random_point_inputs' not in st.session_state:
         st.session_state.random_point_inputs = {
             'num_points': 100,
-            'conduit_size': 2.875
+            'conduit_size': valid_conduit_sizes[0] if valid_conduit_sizes else 2.875
         }
 
     # User inputs
@@ -49,9 +54,9 @@ def run_random_point_generator():
     with col2:
         conduit_size = st.selectbox(
             "Conduit Size (in):",
-            [2.875, 3.5],
-            index=[2.875, 3.5].index(st.session_state.random_point_inputs['conduit_size']),
-            help="Select conduit size (2.875 or 3.5 inches)."
+            valid_conduit_sizes,
+            index=valid_conduit_sizes.index(st.session_state.random_point_inputs['conduit_size']) if st.session_state.random_point_inputs['conduit_size'] in valid_conduit_sizes else 0,
+            help="Select conduit size from reference data."
         )
         st.session_state.random_point_inputs['conduit_size'] = conduit_size
 
@@ -60,18 +65,25 @@ def run_random_point_generator():
     if generate:
         with st.spinner("Generating random points..."):
             try:
-                # Get valid ranges from REFERENCE_DATA
-                valid_production_rates = PRODUCTION_RATES  # [50, 100, 200, 300, 400, 500, 600]
+                # Filter REFERENCE_DATA for selected conduit size
+                filtered_data = [entry for entry in reference_data if entry['conduit_size'] == conduit_size]
+                if not filtered_data:
+                    st.error(f"No data found for conduit size {conduit_size} in reference data.")
+                    logger.error(f"No data found for conduit size {conduit_size}.")
+                    return
+
+                # Get valid production rates and GLR ranges for this conduit size
+                valid_production_rates = sorted(set([entry['production_rate'] for entry in filtered_data]))
                 valid_glr_ranges = INTERPOLATION_RANGES.get((conduit_size, valid_production_rates[0]), [100, 1000])
-                min_glr, max_glr = valid_glr_ranges
+                min_glr, max_glr = min([range[0] for range in valid_glr_ranges]), max([range[1] for range in valid_glr_ranges])
 
                 # Generate random data
                 data = {
                     'conduit_size': [conduit_size] * num_points,
                     'production_rate': np.random.choice(valid_production_rates, size=num_points),
                     'glr': np.random.uniform(min_glr, max_glr, size=num_points),
-                    'pressure': np.random.uniform(0, 4000, size=num_points),  # Based on ui.py constraints
-                    'depth': np.random.uniform(0, 31000, size=num_points)     # Based on ui.py constraints
+                    'pressure': np.random.uniform(0, 4000, size=num_points),  # From ui.py constraints
+                    'depth': np.random.uniform(0, 31000, size=num_points)     # From ui.py constraints
                 }
                 df = pd.DataFrame(data)
 
