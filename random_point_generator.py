@@ -36,11 +36,9 @@ def calc_y1(p, coeffs):
         for i, coef in enumerate(coeffs):
             y += coef * p ** (len(coeffs) - 1 - i)
         if not np.isfinite(y):
-            logger.warning(f"Non-finite y1 calculated for p={p}, coeffs={coeffs}")
             return None
         return y
-    except Exception as e:
-        logger.error(f"Failed to calculate y1: {str(e)}")
+    except Exception:
         return None
 
 def solve_p2(y2_val, p1, coeffs):
@@ -53,68 +51,91 @@ def solve_p2(y2_val, p1, coeffs):
             y = 0
             for i, coef in enumerate(coeffs):
                 y += coef * x ** (len(coeffs) - 1 - i)
-            return y if np.isfinite(y) else np.nan
+            return y
         except Exception:
             return np.nan
 
-    def func(p2):
-        y2 = polynomial(p2, coeffs)
-        return y2 - y2_val if np.isfinite(y2) else np.inf
+    def root_function(x, target_depth, coeffs):
+        return polynomial(x, coeffs) - target_depth
 
-    try:
-        p2_guess = min(max(p1 + 100, 2000), 3000)
-        if func(0) * func(4000) < 0:
-            p2 = bisect(func, 0, 4000, maxiter=100)
-        else:
-            p2 = fsolve(func, p2_guess, maxfev=100)[0]
-        if not (0 <= p2 <= 4000) or not np.isfinite(p2):
-            logger.warning(f"Invalid p2={p2} for y2_val={y2_val}, p1={p1}, coeffs={coeffs}")
-            return None
-        return p2
-    except Exception as e:
-        logger.warning(f"Failed to solve p2 for y2_val={y2_val}, p1={p1}, coeffs={coeffs}: {str(e)}")
-        return None
+    p2 = None
+    p_range = np.linspace(p1, 4000, 100)
+    for i in range(len(p_range) - 1):
+        p_start, p_end = p_range[i], p_range[i + 1]
+        try:
+            y_start = polynomial(p_start, coeffs)
+            y_end = polynomial(p_end, coeffs)
+            if not (np.isfinite(y_start) and np.isfinite(y_end)):
+                continue
+            f_start = root_function(p_start, y2_val, coeffs)
+            f_end = root_function(p_end, y2_val, coeffs)
+            if np.isfinite(f_start) and np.isfinite(f_end) and f_start * f_end <= 0:
+                try:
+                    candidate = fsolve(root_function, (p_start + p_end) / 2, args=(y2_val, coeffs), maxfev=20000)[0]
+                    if p_start - 1e-6 <= candidate <= p_end + 1e-6:
+                        y_candidate = polynomial(candidate, coeffs)
+                        if np.isfinite(y_candidate) and 0 <= y_candidate <= 31000:
+                            p2 = candidate
+                            break
+                except Exception:
+                    pass
+                try:
+                    candidate = bisect(root_function, p_start, p_end, args=(y2_val, coeffs), maxiter=100)
+                    y_candidate = polynomial(candidate, coeffs)
+                    if np.isfinite(y_candidate) and 0 <= y_candidate <= 31000:
+                        p2 = candidate
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    return p2
 
 def generate_df(coeffs, num_points, min_D):
     """
     Generate DataFrame of random points for a given set of coefficients.
     Returns df or None if generation fails.
     """
-    df = pd.DataFrame(columns=['conduit_size', 'production_rate', 'glr', 'p1', 'D', 'y1', 'y2', 'p2'])
-    unique_D = set()
+    rows = []
+    used_D_set = set()
     x_range = (0, 4000)
     y_range = (0, 31000)
+    max_attempts = 50000
     attempts = 0
-    max_attempts = num_points * 10  # Prevent infinite loops
-    while len(df) < num_points and attempts < max_attempts:
+
+    while len(rows) < num_points and attempts < max_attempts:
+        attempts += 1
         p1 = np.random.uniform(x_range[0], x_range[1])
         y1 = calc_y1(p1, coeffs)
-        if y1 is None or y1 < y_range[0] or y1 > y_range[1] or not np.isfinite(y1):
-            attempts += 1
+        if y1 is None or not np.isfinite(y1) or y1 < 0 or y1 > y_range[1]:
             continue
-        max_D = y_range[1] - y1
-        D = np.random.uniform(max(min_D, 0), max_D)
-        rounded_D = round(D, 8)
-        if rounded_D in unique_D:
-            attempts += 1
+        max_D = max(min_D, min(7000, y_range[1] - y1))
+        if max_D < min_D:
             continue
-        unique_D.add(rounded_D)
+
+        D_candidates = np.linspace(min_D, max_D, 1000)
+        np.random.shuffle(D_candidates)
+        D = None
+        for d in D_candidates:
+            if round(d, 8) not in used_D_set:
+                D = d
+                break
+        if D is None:
+            continue
+
         y2 = y1 + D
+        if y2 > y_range[1]:
+            y2 = y_range[1]
+            D = y2 - y1
+
         p2 = solve_p2(y2, p1, coeffs)
-        if p2 is None or p2 < x_range[0] or p2 > x_range[1] or not np.isfinite(p2):
-            attempts += 1
+        if p2 is None or p2 < x_range[0] or p2 > x_range[1]:
             continue
-        df = pd.concat([df, pd.DataFrame({
-            'conduit_size': [np.nan],  # Placeholder, filled later
-            'production_rate': [np.nan],
-            'glr': [np.nan],
-            'p1': [p1],
-            'D': [D],
-            'y1': [y1],
-            'y2': [y2],
-            'p2': [p2]
-        })], ignore_index=True)
-        attempts += 1
+
+        used_D_set.add(round(D, 8))
+        rows.append([p1, D, y1, y2, p2])
+
+    df = pd.DataFrame(rows, columns=["p1", "D", "y1", "y2", "p2"])
     if len(df) < num_points:
         logger.warning(f"Generated only {len(df)} of {num_points} points due to constraints.")
     return df if not df.empty else None
@@ -156,10 +177,9 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
     excel_buffer = io.BytesIO()
     file_name = f"{conduit_size}_in_{production_rate}_stb-day_{glr}_glr_random_points.xlsx"
     with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-        df.to_excel(writer, sheet_name='Points', index=False)
+        df.to_excel(writer, sheet_name='Data', index=False)
         if generate_graphs:
             workbook = writer.book
-            points_sheet = writer.sheets['Points']
             chartdata_sheet = workbook.add_worksheet('ChartData')
             chartdata_sheet.hide()
 
@@ -171,38 +191,52 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
 
             # Select random rows for graphs
             if len(df) > num_graph_sheets:
-                df_graph = df.sample(n=num_graph_sheets, random_state=42).reset_index(drop=True)
+                selected_indices = np.random.choice(len(df), size=num_graph_sheets, replace=False)
+                df_graph = df.iloc[selected_indices].reset_index(drop=True)
             else:
+                selected_indices = range(len(df))
                 df_graph = df
+
+            # Write selected points to Points sheet without extra columns
+            df_graph[['p1', 'D', 'y1', 'y2', 'p2']].to_excel(writer, sheet_name='Points', index=False)
 
             for sheet_num in range(1, min(num_graph_sheets + 1, len(df_graph) + 1)):
                 idx = sheet_num - 1
-                row = df_graph.iloc[idx]
-                p1_val, y1_val, p2_val, y2_val, D_val = row['p1'], row['y1'], row['p2'], row['y2'], row['D']
+                p1_val, D_val, y1_val, y2_val, p2_val = df_graph.iloc[idx]['p1'], df_graph.iloc[idx]['D'], df_graph.iloc[idx]['y1'], df_graph.iloc[idx]['y2'], df_graph.iloc[idx]['p2']
 
-                # Write data for chart lines
+                # Write data for chart lines vertically
                 row_offset = 2 + idx * 10
-                # Vertical line at p1 from y1 to 0
-                chartdata_sheet.write_row(row_offset, 0, [p1_val, p1_val])
-                chartdata_sheet.write_row(row_offset + 1, 0, [y1_val, 0])
-                # Horizontal line at y1 from p1 to 0
-                chartdata_sheet.write_row(row_offset + 2, 0, [p1_val, 0])
-                chartdata_sheet.write_row(row_offset + 3, 0, [y1_val, y1_val])
-                # Vertical line at p2 from y2 to 0
-                chartdata_sheet.write_row(row_offset + 4, 0, [p2_val, p2_val])
-                chartdata_sheet.write_row(row_offset + 5, 0, [y2_val, 0])
-                # Horizontal line at y2 from p2 to 0
-                chartdata_sheet.write_row(row_offset + 6, 0, [p2_val, 0])
-                chartdata_sheet.write_row(row_offset + 7, 0, [y2_val, y2_val])
-                # Well length line (0, y1) to (0, y2)
-                chartdata_sheet.write_row(row_offset + 8, 0, [0, 0])
-                chartdata_sheet.write_row(row_offset + 9, 0, [y1_val, y2_val if y2_val <= y_range[1] else y_range[1]])
+                # Vertical line at p1: (p1, y1) to (p1, 0)
+                chartdata_sheet.write(row_offset, 0, p1_val)
+                chartdata_sheet.write(row_offset, 1, y1_val)
+                chartdata_sheet.write(row_offset + 1, 0, p1_val)
+                chartdata_sheet.write(row_offset + 1, 1, 0)
+                # Horizontal line at y1: (p1, y1) to (0, y1)
+                chartdata_sheet.write(row_offset + 2, 0, p1_val)
+                chartdata_sheet.write(row_offset + 2, 1, y1_val)
+                chartdata_sheet.write(row_offset + 3, 0, 0)
+                chartdata_sheet.write(row_offset + 3, 1, y1_val)
+                # Vertical line at p2: (p2, y2) to (p2, 0)
+                chartdata_sheet.write(row_offset + 4, 0, p2_val)
+                chartdata_sheet.write(row_offset + 4, 1, y2_val)
+                chartdata_sheet.write(row_offset + 5, 0, p2_val)
+                chartdata_sheet.write(row_offset + 5, 1, 0)
+                # Horizontal line at y2: (p2, y2) to (0, y2)
+                chartdata_sheet.write(row_offset + 6, 0, p2_val)
+                chartdata_sheet.write(row_offset + 6, 1, y2_val)
+                chartdata_sheet.write(row_offset + 7, 0, 0)
+                chartdata_sheet.write(row_offset + 7, 1, y2_val)
+                # Well Length line: (0, y1) to (0, y2)
+                chartdata_sheet.write(row_offset + 8, 0, 0)
+                chartdata_sheet.write(row_offset + 8, 1, y1_val)
+                chartdata_sheet.write(row_offset + 9, 0, 0)
+                chartdata_sheet.write(row_offset + 9, 1, y2_val if y2_val <= y_range[1] else y_range[1])
 
                 # Create chart
-                chart_sheet = workbook.add_chartsheet(f'Graph {sheet_num}')
+                chart_sheet = workbook.add_chartsheet(f'Graph_{sheet_num}')
                 chart = workbook.add_chart({'type': 'scatter', 'subtype': 'straight'})
 
-                # GLR curve
+                # GLR curve series
                 chart.add_series({
                     'name': 'GLR curve',
                     'categories': ['ChartData', 0, 0, 0, 99],
@@ -214,63 +248,62 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
                 # Add (p1, y1) and (p2, y2) markers
                 chart.add_series({
                     'name': f'(p1, y1) = ({p1_val:.2f} psi, {y1_val:.2f} ft)',
-                    'categories': ['Points', idx + 1, 3, idx + 1, 3],  # p1
-                    'values': ['Points', idx + 1, 5, idx + 1, 5],      # y1
+                    'categories': ['Points', idx + 1, 0, idx + 1, 0],
+                    'values': ['Points', idx + 1, 2, idx + 1, 2],
                     'marker': {'type': 'circle', 'size': 7, 'fill': {'color': 'blue'}},
                     'line': {'none': True},
                 })
                 chart.add_series({
                     'name': f'(p2, y2) = ({p2_val:.2f} psi, {y2_val:.2f} ft)',
-                    'categories': ['Points', idx + 1, 7, idx + 1, 7],  # p2
-                    'values': ['Points', idx + 1, 6, idx + 1, 6],      # y2
+                    'categories': ['Points', idx + 1, 4, idx + 1, 4],
+                    'values': ['Points', idx + 1, 3, idx + 1, 3],
                     'marker': {'type': 'circle', 'size': 7, 'fill': {'color': 'blue'}},
                     'line': {'none': True},
                 })
 
                 # Red projection lines
                 chart.add_series({
-                    'name': 'Projection at p1',
-                    'categories': ['ChartData', row_offset, 0, row_offset, 1],
-                    'values': ['ChartData', row_offset + 1, 0, row_offset + 1, 1],
+                    'name': 'Connecting Line',
+                    'categories': ['ChartData', row_offset, 0, row_offset + 1, 0],
+                    'values': ['ChartData', row_offset, 1, row_offset + 1, 1],
+                    'line': {'color': 'red', 'width': 1},
+                    'marker': {'type': 'none'},
+                })
+                chart.add_series({
+                    'name': '',
+                    'categories': ['ChartData', row_offset + 2, 0, row_offset + 3, 0],
+                    'values': ['ChartData', row_offset + 2, 1, row_offset + 3, 1],
                     'line': {'color': 'red', 'width': 1},
                     'marker': {'type': 'none'},
                     'legend': {'none': True},
                 })
                 chart.add_series({
                     'name': '',
-                    'categories': ['ChartData', row_offset + 2, 0, row_offset + 2, 1],
-                    'values': ['ChartData', row_offset + 3, 0, row_offset + 3, 1],
+                    'categories': ['ChartData', row_offset + 4, 0, row_offset + 5, 0],
+                    'values': ['ChartData', row_offset + 4, 1, row_offset + 5, 1],
                     'line': {'color': 'red', 'width': 1},
                     'marker': {'type': 'none'},
                     'legend': {'none': True},
                 })
                 chart.add_series({
                     'name': '',
-                    'categories': ['ChartData', row_offset + 4, 0, row_offset + 4, 1],
-                    'values': ['ChartData', row_offset + 5, 0, row_offset + 5, 1],
-                    'line': {'color': 'red', 'width': 1},
-                    'marker': {'type': 'none'},
-                    'legend': {'none': True},
-                })
-                chart.add_series({
-                    'name': '',
-                    'categories': ['ChartData', row_offset + 6, 0, row_offset + 6, 1],
-                    'values': ['ChartData', row_offset + 7, 0, row_offset + 7, 1],
+                    'categories': ['ChartData', row_offset + 6, 0, row_offset + 7, 0],
+                    'values': ['ChartData', row_offset + 6, 1, row_offset + 7, 1],
                     'line': {'color': 'red', 'width': 1},
                     'marker': {'type': 'none'},
                     'legend': {'none': True},
                 })
 
-                # Well length line
+                # Well Length line
                 chart.add_series({
                     'name': f'Well Length ({D_val:.2f} ft)',
-                    'categories': ['ChartData', row_offset + 8, 0, row_offset + 8, 1],
-                    'values': ['ChartData', row_offset + 9, 0, row_offset + 9, 1],
+                    'categories': ['ChartData', row_offset + 8, 0, row_offset + 9, 0],
+                    'values': ['ChartData', row_offset + 8, 1, row_offset + 9, 1],
                     'line': {'color': 'green', 'width': 4},
                     'marker': {'type': 'none'},
                 })
 
-                # Axes setup
+                # Axes setup with dynamic ranges
                 chart.set_x_axis({
                     'name': 'Gradient Pressure, psi',
                     'min': x_range[0],
@@ -284,6 +317,7 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
                     'minor_gridlines': {'visible': True, 'line': {'color': '#D3D3D3', 'width': 0.5}},
                     'minor_tick_mark': 'none',
                 })
+
                 chart.set_y_axis({
                     'name': 'Depth, ft',
                     'min': y_range[0],
@@ -298,12 +332,28 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
                     'minor_gridlines': {'visible': True, 'line': {'color': '#D3D3D3', 'width': 0.5}},
                     'minor_tick_mark': 'none',
                 })
+
+                chart.set_x2_axis({
+                    'name': 'Gradient Pressure, psi',
+                    'min': x_range[0],
+                    'max': x_range[1],
+                    'major_unit': (x_range[1] - x_range[0]) / 4,
+                    'minor_unit': (x_range[1] - x_range[0]) / 20,
+                    'name_font': {'color': 'black'},
+                    'num_font': {'color': 'black'},
+                    'line': {'color': 'black'},
+                    'major_gridlines': {'visible': True, 'line': {'color': '#D3D3D3'}},
+                    'minor_gridlines': {'visible': True, 'line': {'color': '#D3D3D3', 'width': 0.5}},
+                    'minor_tick_mark': 'none',
+                })
+
                 chart.set_legend({
                     'position': 'right',
                     'font': {'size': 8},
                     'border': {'color': 'black', 'width': 0.5},
                     'layout': {'x_position': 0.85, 'y_position': 0.02},
                 })
+
                 chart.set_size({'width': 1000, 'height': 600})
                 chart.set_title({'none': True})
                 chart_sheet.set_chart(chart)
