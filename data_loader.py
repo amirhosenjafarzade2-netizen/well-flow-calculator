@@ -1,6 +1,4 @@
 # data_loader.py
-# Functions to load and parse reference Excel data for the Well Pressure and Depth Calculator
-
 import streamlit as st
 import pandas as pd
 import requests
