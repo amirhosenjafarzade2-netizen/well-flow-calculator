@@ -7,9 +7,8 @@ import io
 from scipy.optimize import fsolve, bisect
 from data_loader import load_reference_data
 from config import PRODUCTION_RATES, INTERPOLATION_RANGES, COLORS
-from utils import export_plot_to_png, setup_logging
+from utils import setup_logging
 import re
-import matplotlib.pyplot as plt
 
 logger = setup_logging()
 
@@ -182,25 +181,22 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
                 p1_val, y1_val, p2_val, y2_val, D_val = row['p1'], row['y1'], row['p2'], row['y2'], row['D']
 
                 # Write data for chart lines
-                row_offset = 2 + idx * 12  # Increased to accommodate connecting line
-                # Connecting line (p1, y1) to (p2, y2)
-                chartdata_sheet.write_row(row_offset, 0, [p1_val, p2_val])
-                chartdata_sheet.write_row(row_offset + 1, 0, [y1_val, y2_val])
-                # Vertical line at p1 (p1, y1) to (p1, 0)
-                chartdata_sheet.write_row(row_offset + 2, 0, [p1_val, p1_val])
-                chartdata_sheet.write_row(row_offset + 3, 0, [y1_val, 0])
-                # Horizontal line at y1 (p1, y1) to (0, y1)
-                chartdata_sheet.write_row(row_offset + 4, 0, [p1_val, 0])
-                chartdata_sheet.write_row(row_offset + 5, 0, [y1_val, y1_val])
-                # Vertical line at p2 (p2, y2) to (p2, 0)
-                chartdata_sheet.write_row(row_offset + 6, 0, [p2_val, p2_val])
-                chartdata_sheet.write_row(row_offset + 7, 0, [y2_val, 0])
-                # Horizontal line at y2 (p2, y2) to (0, y2)
-                chartdata_sheet.write_row(row_offset + 8, 0, [p2_val, 0])
-                chartdata_sheet.write_row(row_offset + 9, 0, [y2_val, y2_val])
+                row_offset = 2 + idx * 10
+                # Vertical line at p1 from y1 to 0
+                chartdata_sheet.write_row(row_offset, 0, [p1_val, p1_val])
+                chartdata_sheet.write_row(row_offset + 1, 0, [y1_val, 0])
+                # Horizontal line at y1 from p1 to 0
+                chartdata_sheet.write_row(row_offset + 2, 0, [p1_val, 0])
+                chartdata_sheet.write_row(row_offset + 3, 0, [y1_val, y1_val])
+                # Vertical line at p2 from y2 to 0
+                chartdata_sheet.write_row(row_offset + 4, 0, [p2_val, p2_val])
+                chartdata_sheet.write_row(row_offset + 5, 0, [y2_val, 0])
+                # Horizontal line at y2 from p2 to 0
+                chartdata_sheet.write_row(row_offset + 6, 0, [p2_val, 0])
+                chartdata_sheet.write_row(row_offset + 7, 0, [y2_val, y2_val])
                 # Well length line (0, y1) to (0, y2)
-                chartdata_sheet.write_row(row_offset + 10, 0, [0, 0])
-                chartdata_sheet.write_row(row_offset + 11, 0, [y1_val, y2_val if y2_val <= y_range[1] else y_range[1]])
+                chartdata_sheet.write_row(row_offset + 8, 0, [0, 0])
+                chartdata_sheet.write_row(row_offset + 9, 0, [y1_val, y2_val if y2_val <= y_range[1] else y_range[1]])
 
                 # Create chart
                 chart_sheet = workbook.add_chartsheet(f'Graph {sheet_num}')
@@ -231,7 +227,7 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
                     'line': {'none': True},
                 })
 
-                # Connecting line (p1, y1) to (p2, y2)
+                # Red lines (projections)
                 chart.add_series({
                     'name': 'Connecting Line',
                     'categories': ['ChartData', row_offset, 0, row_offset, 1],
@@ -239,8 +235,6 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
                     'line': {'color': 'red', 'width': 1},
                     'marker': {'type': 'none'},
                 })
-
-                # Horizontal and vertical lines
                 chart.add_series({
                     'name': '',
                     'categories': ['ChartData', row_offset + 2, 0, row_offset + 2, 1],
@@ -265,20 +259,12 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
                     'marker': {'type': 'none'},
                     'legend': {'none': True},
                 })
-                chart.add_series({
-                    'name': '',
-                    'categories': ['ChartData', row_offset + 8, 0, row_offset + 8, 1],
-                    'values': ['ChartData', row_offset + 9, 0, row_offset + 9, 1],
-                    'line': {'color': 'red', 'width': 1},
-                    'marker': {'type': 'none'},
-                    'legend': {'none': True},
-                })
 
                 # Well length line
                 chart.add_series({
                     'name': f'Well Length ({D_val:.2f} ft)',
-                    'categories': ['ChartData', row_offset + 10, 0, row_offset + 10, 1],
-                    'values': ['ChartData', row_offset + 11, 0, row_offset + 11, 1],
+                    'categories': ['ChartData', row_offset + 8, 0, row_offset + 8, 1],
+                    'values': ['ChartData', row_offset + 9, 0, row_offset + 9, 1],
                     'line': {'color': 'green', 'width': 4},
                     'marker': {'type': 'none'},
                 })
@@ -482,53 +468,9 @@ def run_random_point_generator():
                     df['conduit_size'] = conduit_size
                     df['production_rate'] = production_rate
                     df['glr'] = glr
-                    # Calculate max_x for the plot
-                    coeffs = [entry['coefficients'][k] for k in sorted(entry['coefficients'].keys())]
-                    x_values = np.linspace(0, 4000, 1000)
-                    y_values = [calc_y1(x, coeffs) for x in x_values]
-                    max_x = 4000
-                    for x, y in zip(x_values, y_values):
-                        if y is not None and y >= 31000:
-                            max_x = x
-                            break
                     # Display data for single GLR
                     st.subheader("Generated Data")
                     st.dataframe(df)
-                    # Plot data (show one well path for clarity)
-                    fig, ax = plt.subplots()
-                    # Add GLR curve
-                    p1_full = np.linspace(0, max_x, 100)
-                    y1_full = [calc_y1(p, coeffs) for p in p1_full]
-                    y1_full = [y if y is not None and y <= 31000 else 31000 for y in y1_full]
-                    ax.plot(p1_full, y1_full, color='blue', label='GLR Curve')
-                    # Select one random row for the well path
-                    if not df.empty:
-                        row = df.sample(n=1, random_state=42).iloc[0]
-                        # Well path (single red line)
-                        ax.plot([row['p1'], row['p2']], [row['y1'], row['y2']], color='red', label='Well Path')
-                        # Well length (blue dashed line)
-                        ax.plot([row['p1'], row['p1']], [row['y1'], row['y2']], color='blue', linestyle='--', label='Well Length')
-                        # Add markers for clarity
-                        ax.scatter([row['p1'], row['p2']], [row['y1'], row['y2']], color='blue', s=50, label='Points' if row.name == 0 else None)
-                    ax.set_xlabel("Gradient Pressure, psi")
-                    ax.set_ylabel("Depth, ft")
-                    ax.set_xlim(0, max_x)
-                    ax.set_ylim(0, 31000)
-                    ax.set_title(f"Random Well Performance Data (Conduit Size: {conduit_size} in, Production Rate: {production_rate} stb/day, GLR: {glr} scf/stb)")
-                    ax.invert_yaxis()
-                    ax.legend()
-                    st.pyplot(fig)
-                    # Export plot
-                    try:
-                        st.download_button(
-                            label="Download Plot as PNG",
-                            data=export_plot_to_png(fig),
-                            file_name="random_points_plot.png",
-                            mime="image/png"
-                        )
-                    except Exception as e:
-                        st.error(f"Failed to export plot: {str(e)}")
-                        logger.error(f"Plot export failed: {str(e)}")
                     # Generate single Excel
                     excel_buffer, file_name = generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets)
                     if excel_buffer and file_name:
