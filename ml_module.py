@@ -137,6 +137,7 @@ def train_neural_network(df_ml):
     model.compile(optimizer='adam', loss='mse')
     
     # Progress bar for training
+    st.write("Training neural network...")
     progress = st.progress(0)
     epochs = 50
     for epoch in range(epochs):
