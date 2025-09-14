@@ -79,10 +79,10 @@ def load_reference_data():
         logger.error(f"Error loading reference Excel: {str(e)}")
         return None
 
-def load_ml_data(reference_data, conduit_size, num_points, production_rate=None, glr=None, min_D=1000):
+def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=None, min_D=1000):
     """
     Generate ML data using random_point_generator's generate_df function.
-    If production_rate or glr is None, use all valid combinations for the conduit size.
+    If glr is None, use all valid GLRs for the conduit size and production rate.
     """
     dfs_ml = []
     required_cols = ["p1", "D", "y1", "y2", "p2"]
@@ -90,18 +90,18 @@ def load_ml_data(reference_data, conduit_size, num_points, production_rate=None,
     filtered_data = [
         entry for entry in reference_data 
         if entry['conduit_size'] == conduit_size 
-        and (production_rate is None or entry['production_rate'] == production_rate)
+        and entry['production_rate'] == production_rate
         and (glr is None or entry['glr'] == glr)
     ]
     
     if not filtered_data:
-        st.error(f"No data found for conduit size {conduit_size}" + 
-                 (f", production rate {production_rate}" if production_rate else "") +
+        st.error(f"No data found for conduit size {conduit_size}, production rate {production_rate}" +
                  (f", GLR {glr}" if glr else ""))
         logger.error(f"No data found for conduit_size={conduit_size}, production_rate={production_rate}, glr={glr}")
         return None
     
-    for entry in filtered_data:
+    progress = st.progress(0)
+    for i, entry in enumerate(filtered_data):
         coeffs = [entry['coefficients'][k] for k in sorted(entry['coefficients'].keys())]
         df_temp = generate_df(coeffs, num_points, min_D)
         if df_temp is None or df_temp.empty:
@@ -111,6 +111,7 @@ def load_ml_data(reference_data, conduit_size, num_points, production_rate=None,
         df_temp['production_rate'] = entry['production_rate']
         df_temp['GLR'] = entry['glr']
         dfs_ml.append(df_temp)
+        progress.progress((i + 1) / len(filtered_data))
     
     return pd.concat(dfs_ml, ignore_index=True) if dfs_ml else None
 
@@ -133,25 +134,73 @@ def train_neural_network(df_ml):
     return model, scaler
 
 def analyze_parameter_effects(model, scaler, df_ml):
+    """
+    Generate parameter effect plots matching the main Colab program.
+    """
+    for conduit_size in [2.875, 3.5]:
+        for production_rate in PRODUCTION_RATES:
+            glr_min, glr_max = get_valid_glr_range(conduit_size, production_rate)
+            glr_values = np.linspace(glr_min, glr_max, 100)
+            base_values = df_ml.mean().to_dict()
+            base_values['conduit_size'] = conduit_size
+            base_values['production_rate'] = production_rate
+            X_test_glr = pd.DataFrame([base_values] * 100)
+            X_test_glr['GLR'] = glr_values
+            X_test_glr_scaled = scaler.transform(X_test_glr)
+            glr_predictions = model.predict(X_test_glr_scaled, verbose=0).flatten()
+            fig, ax = plt.subplots(figsize=(8, 5))
+            ax.plot(glr_values, glr_predictions, label=f'Conduit: {conduit_size} in, Prod: {production_rate} stb/day')
+            ax.set_xlabel('GLR (SCF/STB)')
+            ax.set_ylabel('Pressure Gradient (psi)')
+            ax.set_title('Pressure Gradient vs. GLR')
+            ax.grid(True)
+            ax.legend()
+            st.subheader(f"Effect of GLR (Conduit: {conduit_size} in, Production: {production_rate} stb/day)")
+            st.pyplot(fig)
+
+    # Overall Pressure vs. GLR
+    glr_values = np.linspace(0, 25000, 100)
     base_values = df_ml.mean().to_dict()
-    production_rates = PRODUCTION_RATES
-    X_test_prod = pd.DataFrame([base_values] * len(production_rates))
-    X_test_prod['production_rate'] = production_rates
-    X_test_prod_scaled = scaler.transform(X_test_prod)
-    prod_predictions = model.predict(X_test_prod_scaled, verbose=0).flatten()
-    
-    fig, ax = plt.subplots()
-    ax.plot(production_rates, prod_predictions, marker='o', label='Pressure Gradient vs. Production Rate')
-    ax.set_xlabel('Production Rate (stb/day)')
+    X_test_glr = pd.DataFrame([base_values] * 100)
+    X_test_glr['GLR'] = glr_values
+    X_test_glr_scaled = scaler.transform(X_test_glr)
+    glr_predictions = model.predict(X_test_glr_scaled, verbose=0).flatten()
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(glr_values, glr_predictions, label='Overall Pressure vs. GLR')
+    ax.set_xlabel('GLR (SCF/STB)')
     ax.set_ylabel('Pressure Gradient (psi)')
-    ax.set_title('Pressure Gradient vs. Production Rate')
+    ax.set_title('Overall Pressure Gradient vs. GLR')
     ax.grid(True)
     ax.legend()
+    st.subheader("Overall Pressure vs. GLR")
     st.pyplot(fig)
+
+    # Effect of D, production_rate, conduit_size
+    for param in ['D', 'production_rate', 'conduit_size']:
+        if param == 'conduit_size':
+            param_values = [2.875, 3.5]
+        elif param == 'production_rate':
+            param_values = PRODUCTION_RATES
+        else:
+            param_values = np.linspace(df_ml[param].min(), df_ml[param].max(), 100)
+        base_values = df_ml.mean().to_dict()
+        X_test_param = pd.DataFrame([base_values] * len(param_values))
+        X_test_param[param] = param_values
+        X_test_param_scaled = scaler.transform(X_test_param)
+        param_predictions = model.predict(X_test_param_scaled, verbose=0).flatten()
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.plot(param_values, param_predictions, label=f'Pressure Gradient vs. {param}')
+        ax.set_xlabel(param.capitalize())
+        ax.set_ylabel('Pressure Gradient (psi)')
+        ax.set_title(f'Pressure Gradient vs. {param.capitalize()}')
+        ax.grid(True)
+        ax.legend()
+        st.subheader(f"Effect of {param}")
+        st.pyplot(fig)
 
 def get_valid_glr_range(conduit_size, production_rate):
     ranges = INTERPOLATION_RANGES.get((conduit_size, production_rate), [])
-    return min(r[0] for r in ranges), max(r[1] for r in ranges)
+    return min(r[0] for r in ranges) if ranges else 0, max(r[1] for r in ranges) if ranges else 25000
 
 def evaluate_individual(individual, model, scaler):
     conduit_size, production_rate, glr = individual
@@ -183,7 +232,8 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
     for ind, fit in zip(pop, fitnesses):
         ind.fitness.values = fit
     
-    for gen in range(40):
+    best_fitness_history = []
+    for gen in range(20):
         offspring = toolbox.select(pop, len(pop))
         offspring = list(map(toolbox.clone, offspring))
         for child1, child2 in zip(offspring[::2], offspring[1::2]):
@@ -200,9 +250,76 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
         for ind, fit in zip(invalid_ind, fitnesses):
             ind.fitness.values = fit
         pop[:] = offspring
+        best_ind = tools.selBest(pop, 1)[0]
+        best_fitness_history.append(best_ind.fitness.values[0])
     
-    best_ind = tools.selBest(pop, 1)[0]
-    st.write(f"Optimal: Conduit {best_ind[0]}, Prod {best_ind[1]}, GLR {best_ind[2]:.2f}")
+    st.write(f"Optimal Conditions: Conduit {best_ind[0]} in, Production {best_ind[1]} stb/day, GLR {best_ind[2]:.2f} SCF/STB")
+    st.write(f"Predicted Minimal Pressure Gradient: {best_fitness_history[-1]:.2f} psi")
+    
+    # Plot fitness evolution
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(range(1, 21), best_fitness_history, marker='o')
+    ax.set_xlabel('Generation')
+    ax.set_ylabel('Best Pressure Gradient (psi)')
+    ax.set_title('Optimization Progress: Best Fitness per Generation')
+    ax.grid(True)
+    st.subheader("Optimization Progress: Best Fitness per Generation")
+    st.pyplot(fig)
+    
+    # Optimization graphs
+    base_values = df_ml.mean().to_dict()
+    base_values['conduit_size'] = best_ind[0]
+    base_values['production_rate'] = best_ind[1]
+    base_values['GLR'] = best_ind[2]
+    
+    # Pressure Gradient vs. Production Rate
+    production_rates = PRODUCTION_RATES
+    X_test_prod = pd.DataFrame([base_values] * len(production_rates))
+    X_test_prod['production_rate'] = production_rates
+    X_test_prod_scaled = scaler.transform(X_test_prod)
+    prod_predictions = model.predict(X_test_prod_scaled, verbose=0).flatten()
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(production_rates, prod_predictions, marker='o', label='Pressure Gradient vs. Production Rate')
+    ax.set_xlabel('Production Rate (stb/day)')
+    ax.set_ylabel('Pressure Gradient (psi)')
+    ax.set_title('Pressure Gradient vs. Production Rate')
+    ax.grid(True)
+    ax.legend()
+    st.subheader("Pressure Gradient vs. Production Rate (Optimization)")
+    st.pyplot(fig)
+    
+    # Pressure Gradient vs. GLR
+    glr_min, glr_max = get_valid_glr_range(best_ind[0], best_ind[1])
+    glr_values = np.linspace(glr_min, glr_max, 100)
+    X_test_glr = pd.DataFrame([base_values] * 100)
+    X_test_glr['GLR'] = glr_values
+    X_test_glr_scaled = scaler.transform(X_test_glr)
+    glr_predictions = model.predict(X_test_glr_scaled, verbose=0).flatten()
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(glr_values, glr_predictions, label='Pressure Gradient vs. GLR')
+    ax.set_xlabel('GLR (SCF/STB)')
+    ax.set_ylabel('Pressure Gradient (psi)')
+    ax.set_title('Pressure Gradient vs. GLR')
+    ax.grid(True)
+    ax.legend()
+    st.subheader("Pressure Gradient vs. GLR (Optimization)")
+    st.pyplot(fig)
+    
+    # Pressure Gradient vs. Depth
+    depth_values = np.linspace(df_ml['D'].min(), df_ml['D'].max(), 100)
+    X_test_depth = pd.DataFrame([base_values] * 100)
+    X_test_depth['D'] = depth_values
+    X_test_depth_scaled = scaler.transform(X_test_depth)
+    depth_predictions = model.predict(X_test_depth_scaled, verbose=0).flatten()
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(depth_values, depth_predictions, label='Pressure Gradient vs. Depth')
+    ax.set_xlabel('Depth Offset (ft)')
+    ax.set_ylabel('Pressure Gradient (psi)')
+    ax.set_title('Pressure Gradient vs. Depth')
+    ax.grid(True)
+    ax.legend()
+    st.subheader("Pressure Gradient vs. Depth (Optimization)")
+    st.pyplot(fig)
 
 def run_machine_learning():
     st.subheader("Mode 5: Machine Learning Analysis")
@@ -228,19 +345,6 @@ def run_machine_learning():
             return
     
     with col2:
-        num_points = st.number_input(
-            "Number of Random Points per GLR Curve:",
-            min_value=1,
-            value=1000,
-            step=100,
-            help="Number of random data points to generate per GLR curve."
-        )
-    
-    all_glr = st.checkbox("Use All GLRs for Selected Conduit Size", value=True)
-    production_rate = None
-    glr = None
-    
-    if not all_glr:
         valid_prates, valid_glrs = get_valid_options(conduit_size)
         valid_prates = [float(pr) for pr in valid_prates]
         production_rate = st.selectbox(
@@ -250,6 +354,19 @@ def run_machine_learning():
         )
         if not validate_production_rate(production_rate):
             return
+    
+    num_points = st.number_input(
+        "Number of Random Points per GLR Curve:",
+        min_value=1,
+        value=1000,
+        step=100,
+        help="Number of random data points to generate per GLR curve."
+    )
+    
+    all_glr = st.checkbox("Use All GLRs for Selected Production Rate", value=True)
+    glr = None
+    
+    if not all_glr:
         valid_glrs = valid_glrs.get(production_rate, [])
         if valid_glrs:
             glr = st.selectbox(
@@ -259,18 +376,21 @@ def run_machine_learning():
             )
     
     if st.button("Generate Data and Train"):
-        with st.spinner("Generating data and training..."):
-            df_ml = load_ml_data(reference_data, conduit_size, num_points, production_rate, glr)
+        with st.spinner("Generating data..."):
+            df_ml = load_ml_data(reference_data, conduit_size, production_rate, num_points, glr)
             if df_ml is None or df_ml.empty:
                 st.error("Failed to generate ML data.")
                 return
             st.subheader("Generated Data Preview")
             st.dataframe(df_ml.head())
+        
+        with st.spinner("Training neural network..."):
             model, scaler = train_neural_network(df_ml)
             if model is None:
                 st.error("Training failed.")
                 return
-            st.success("Training complete!")
+        
+        st.success("Training complete!")
         
         option = st.selectbox("Choose: 1. Parameter Analysis or 2. Optimize Conditions", ["1", "2"])
         if option == "1":
