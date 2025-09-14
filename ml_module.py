@@ -117,6 +117,9 @@ def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=
     return pd.concat(dfs_ml, ignore_index=True) if dfs_ml else None
 
 def train_neural_network(df_ml):
+    """
+    Train the neural network with a progress bar for epochs.
+    """
     if df_ml.empty:
         return None, None
     features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
@@ -133,13 +136,14 @@ def train_neural_network(df_ml):
     ])
     model.compile(optimizer='adam', loss='mse')
     
-    # Simulated progress bar for training
+    # Progress bar for training
+    st.write("Training neural network...")
     progress = st.progress(0)
     epochs = 50
-    for i in range(epochs):
+    for epoch in range(epochs):
         model.fit(X_scaled, y, epochs=1, batch_size=32, validation_split=0.2, verbose=0)
-        progress.progress((i + 1) / epochs)
-        time.sleep(0.1)  # Simulate training time for smoother progress
+        progress.progress((epoch + 1) / epochs)
+        time.sleep(0.05)  # Smooth progress bar animation
     return model, scaler
 
 def analyze_parameter_effects(model, scaler, df_ml):
@@ -158,7 +162,7 @@ def analyze_parameter_effects(model, scaler, df_ml):
             X_test_glr_scaled = scaler.transform(X_test_glr)
             glr_predictions = model.predict(X_test_glr_scaled, verbose=0).flatten()
             fig, ax = plt.subplots(figsize=(8, 5))
-            ax.plot(glr_values, glr_predictions, label=f'Conduit: {conduit_size} in, Prod: {production_ratetextures = ['solid', 'dashed', 'dotted']
+            ax.plot(glr_values, glr_predictions, label=f'Conduit: {conduit_size} in, Prod: {production_rate} stb/day')
             ax.set_xlabel('GLR (SCF/STB)')
             ax.set_ylabel('Pressure Gradient (psi)')
             ax.set_title('Pressure Gradient vs. GLR')
