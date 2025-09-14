@@ -9,6 +9,7 @@ from data_loader import load_reference_data
 from config import PRODUCTION_RATES, INTERPOLATION_RANGES, COLORS
 from utils import export_plot_to_png, setup_logging
 import re
+import matplotlib.pyplot as plt  # Added import to fix NameError
 
 logger = setup_logging()
 
@@ -36,6 +37,7 @@ def calc_y1(p, coeffs):
         for i, coef in enumerate(coeffs):
             y += coef * p ** (len(coeffs) - 1 - i)
         if not np.isfinite(y):
+            logger.warning(f"Non-finite y1 calculated for p={p}, coeffs={coeffs}")
             return None
         return y
     except Exception as e:
@@ -52,7 +54,7 @@ def solve_p2(y2_val, p1, coeffs):
             y = 0
             for i, coef in enumerate(coeffs):
                 y += coef * x ** (len(coeffs) - 1 - i)
-            return y
+            return y if np.isfinite(y) else np.nan
         except Exception:
             return np.nan
 
@@ -61,13 +63,19 @@ def solve_p2(y2_val, p1, coeffs):
         return y2 - y2_val if np.isfinite(y2) else np.inf
 
     try:
-        p2_guess = p1 + 100
-        p2 = bisect(func, 0, 4000) if func(p2_guess) * func(0) < 0 else fsolve(func, p2_guess)[0]
+        # Improved initial guess: midpoint of valid range or adjusted based on p1
+        p2_guess = min(max(p1 + 100, 2000), 3000)  # Avoid extremes
+        # Try bisect first for stability
+        if func(0) * func(4000) < 0:
+            p2 = bisect(func, 0, 4000, maxiter=100)
+        else:
+            p2 = fsolve(func, p2_guess, maxfev=100)[0]
         if not (0 <= p2 <= 4000) or not np.isfinite(p2):
+            logger.warning(f"Invalid p2={p2} for y2_val={y2_val}, p1={p1}, coeffs={coeffs}")
             return None
         return p2
     except Exception as e:
-        logger.error(f"Failed to solve p2: {str(e)}")
+        logger.warning(f"Failed to solve p2 for y2_val={y2_val}, p1={p1}, coeffs={coeffs}: {str(e)}")
         return None
 
 def run_random_point_generator():
@@ -171,7 +179,7 @@ def run_random_point_generator():
                                  if entry['conduit_size'] == conduit_size and entry['production_rate'] == production_rate]
                 if not filtered_data:
                     st.error(f"No data found for conduit size {conduit_size} and production rate {production_rate} in reference data.")
-                    logger.error(f"No data found for conduit size {conduit_size} and production rate {production_rate}.")
+                    logger.error(f"No data found for conduit size {conduit_size} and production_rate {production_rate}.")
                     return
 
                 # Get valid GLR ranges and coefficients
@@ -197,6 +205,12 @@ def run_random_point_generator():
 
                 # Drop rows with invalid calculations
                 df = df.dropna()
+
+                # Check if any valid data remains
+                if df.empty:
+                    st.error("No valid points generated. Please check input parameters or reference data.")
+                    logger.error("No valid points generated after calculations.")
+                    return
 
                 # Store results in session state
                 st.session_state.random_point_results = df
