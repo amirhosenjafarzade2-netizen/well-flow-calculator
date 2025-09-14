@@ -11,9 +11,11 @@ from tensorflow.keras.layers import Dense
 from sklearn.preprocessing import StandardScaler
 from deap import base, creator, tools
 import random
-from config import INTERPOLATION_RANGES, PRODUCTION_RATES
+from config import INTERPOLATION_RANGES, PRODUCTION_RATES, GITHUB_URL
 from utils import setup_logging
 from random_point_generator import parse_cell, calc_y1, solve_p2  # Reuse generation functions
+import requests
+import io
 
 logger = setup_logging()
 
@@ -147,18 +149,20 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
 def run_machine_learning():
     st.subheader("Mode 5: Machine Learning Analysis")
     
-    uploaded_file = st.file_uploader("Upload the coefficient Excel for data generation:", type=["xlsx"])
-    if not uploaded_file:
-        st.warning("Please upload the coefficient Excel file.")
-        return
+    # Load the coefficient Excel from GitHub (no uploader)
+    with st.spinner("Loading coefficient Excel from GitHub..."):
+        try:
+            response = requests.get(GITHUB_URL)
+            response.raise_for_status()
+            file_like_object = io.BytesIO(response.content)
+            df_coeffs = pd.read_excel(file_like_object, header=None, engine='openpyxl')
+            st.success("Coefficient data loaded successfully from GitHub.")
+        except Exception as e:
+            st.error(f"Error loading coefficient Excel from GitHub: {str(e)}")
+            logger.error(f"Error loading reference Excel: {str(e)}")
+            return
 
-    try:
-        df_coeffs = pd.read_excel(uploaded_file, header=None)
-    except Exception as e:
-        st.error(f"Error reading Excel: {str(e)}")
-        return
-
-    # Cell inputs same as mode 4
+    # Cell inputs same as before
     cell1 = st.text_input("First cell (e.g., A1):")
     cell2 = st.text_input("Second cell (e.g., G1):")
     cell3 = st.text_input("Third cell (e.g., A2):")
