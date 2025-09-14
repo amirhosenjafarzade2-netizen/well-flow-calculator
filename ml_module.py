@@ -14,6 +14,7 @@ import random
 import requests
 import io
 import re
+import time
 from config import INTERPOLATION_RANGES, PRODUCTION_RATES, GITHUB_URL
 from utils import setup_logging
 from random_point_generator import generate_df, calc_y1, solve_p2
@@ -124,13 +125,21 @@ def train_neural_network(df_ml):
     y = df_ml[target]
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
+    
     model = Sequential([
         Dense(64, activation='relu', input_shape=(X.shape[1],)),
         Dense(32, activation='relu'),
         Dense(1)
     ])
     model.compile(optimizer='adam', loss='mse')
-    model.fit(X_scaled, y, epochs=50, batch_size=32, validation_split=0.2, verbose=0)
+    
+    # Simulated progress bar for training
+    progress = st.progress(0)
+    epochs = 50
+    for i in range(epochs):
+        model.fit(X_scaled, y, epochs=1, batch_size=32, validation_split=0.2, verbose=0)
+        progress.progress((i + 1) / epochs)
+        time.sleep(0.1)  # Simulate training time for smoother progress
     return model, scaler
 
 def analyze_parameter_effects(model, scaler, df_ml):
@@ -149,7 +158,7 @@ def analyze_parameter_effects(model, scaler, df_ml):
             X_test_glr_scaled = scaler.transform(X_test_glr)
             glr_predictions = model.predict(X_test_glr_scaled, verbose=0).flatten()
             fig, ax = plt.subplots(figsize=(8, 5))
-            ax.plot(glr_values, glr_predictions, label=f'Conduit: {conduit_size} in, Prod: {production_rate} stb/day')
+            ax.plot(glr_values, glr_predictions, label=f'Conduit: {conduit_size} in, Prod: {production_ratetextures = ['solid', 'dashed', 'dotted']
             ax.set_xlabel('GLR (SCF/STB)')
             ax.set_ylabel('Pressure Gradient (psi)')
             ax.set_title('Pressure Gradient vs. GLR')
@@ -233,6 +242,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
         ind.fitness.values = fit
     
     best_fitness_history = []
+    progress = st.progress(0)
     for gen in range(20):
         offspring = toolbox.select(pop, len(pop))
         offspring = list(map(toolbox.clone, offspring))
@@ -252,6 +262,7 @@ def optimize_neural_network_conditions(model, scaler, df_ml):
         pop[:] = offspring
         best_ind = tools.selBest(pop, 1)[0]
         best_fitness_history.append(best_ind.fitness.values[0])
+        progress.progress((gen + 1) / 20)
     
     st.write(f"Optimal Conditions: Conduit {best_ind[0]} in, Production {best_ind[1]} stb/day, GLR {best_ind[2]:.2f} SCF/STB")
     st.write(f"Predicted Minimal Pressure Gradient: {best_fitness_history[-1]:.2f} psi")
