@@ -228,20 +228,52 @@ def evaluate_individual(individual, model, scaler):
     prediction = model.predict(input_scaled, verbose=0)[0][0]
     return (prediction,)
 
+def custom_mutation(individual, indpb, conduit_sizes, production_rates, glr_min, glr_max):
+    """
+    Custom mutation to ensure valid conduit_size, production_rate, and GLR.
+    """
+    if random.random() < indpb:
+        individual[0] = random.choice(conduit_sizes)  # conduit_size
+    if random.random() < indpb:
+        individual[1] = random.choice(production_rates)  # production_rate
+    if random.random() < indpb:
+        individual[2] = random.uniform(glr_min, glr_max)  # GLR
+    return individual,
+
 def optimize_neural_network_conditions(model, scaler, df_ml, n_generations=20):
+    """
+    Optimize neural network conditions using a genetic algorithm with constrained values.
+    """
+    logger.info(f"Starting optimization with {n_generations} generations")
     features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
+    conduit_sizes = [2.875, 3.5]
+    production_rates = PRODUCTION_RATES
+
+    # Ensure DEAP classes are recreated to avoid conflicts
+    if hasattr(creator, 'FitnessMin'):
+        del creator.FitnessMin
+    if hasattr(creator, 'Individual'):
+        del creator.Individual
+    
     creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
     creator.create("Individual", list, fitness=creator.FitnessMin)
     toolbox = base.Toolbox()
-    toolbox.register("attr_conduit", random.choice, [2.875, 3.5])
-    toolbox.register("attr_prod", random.choice, PRODUCTION_RATES)
-    toolbox.register("attr_glr", random.uniform, 0, 25000)
+    toolbox.register("attr_conduit", random.choice, conduit_sizes)
+    toolbox.register("attr_prod", random.choice, production_rates)
+    # Use dynamic GLR range based on initial conduit_size and production_rate
+    def attr_glr():
+        conduit = random.choice(conduit_sizes)
+        prod = random.choice(production_rates)
+        glr_min, glr_max = get_valid_glr_range(conduit, prod)
+        return random.uniform(glr_min, glr_max)
+    toolbox.register("attr_glr", attr_glr)
     toolbox.register("individual", tools.initCycle, creator.Individual,
                      (toolbox.attr_conduit, toolbox.attr_prod, toolbox.attr_glr), n=1)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
     toolbox.register("evaluate", evaluate_individual, model=model, scaler=scaler)
-    toolbox.register("mate", tools.cxBlend, alpha=0.5)
-    toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.2)
+    toolbox.register("mate", tools.cxTwoPoint)  # Use two-point crossover to avoid blending
+    toolbox.register("mutate", custom_mutation, indpb=0.2, conduit_sizes=conduit_sizes,
+                     production_rates=production_rates, glr_min=0, glr_max=25000)
     toolbox.register("select", tools.selTournament, tournsize=3)
     
     pop = toolbox.population(n=50)
@@ -250,19 +282,29 @@ def optimize_neural_network_conditions(model, scaler, df_ml, n_generations=20):
         ind.fitness.values = fit
     
     best_fitness_history = []
-    progress = st.progress(0)
+    output_container = st.empty()
+    progress = output_container.progress(0)
     for gen in range(n_generations):
         offspring = toolbox.select(pop, len(pop))
         offspring = list(map(toolbox.clone, offspring))
         for child1, child2 in zip(offspring[::2], offspring[1::2]):
             if random.random() < 0.5:
                 toolbox.mate(child1, child2)
+                # Snap values to valid options after crossover
+                child1[0] = min(conduit_sizes, key=lambda x: abs(x - child1[0]))
+                child1[1] = min(production_rates, key=lambda x: abs(x - child1[1]))
+                glr_min, glr_max = get_valid_glr_range(child1[0], child1[1])
+                child1[2] = max(glr_min, min(glr_max, child1[2]))
+                child2[0] = min(conduit_sizes, key=lambda x: abs(x - child2[0]))
+                child2[1] = min(production_rates, key=lambda x: abs(x - child2[1]))
+                glr_min, glr_max = get_valid_glr_range(child2[0], child2[1])
+                child2[2] = max(glr_min, min(glr_max, child2[2]))
                 del child1.fitness.values
                 del child2.fitness.values
         for mutant in offspring:
-            if random.random() < 0.2:
-                toolbox.mutate(mutant)
-                del mutant.fitness.values
+            glr_min, glr_max = get_valid_glr_range(mutant[0], mutant[1])
+            toolbox.mutate(mutant, glr_min=glr_min, glr_max=glr_max)
+            del mutant.fitness.values
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
         fitnesses = map(toolbox.evaluate, invalid_ind)
         for ind, fit in zip(invalid_ind, fitnesses):
@@ -271,12 +313,15 @@ def optimize_neural_network_conditions(model, scaler, df_ml, n_generations=20):
         best_ind = tools.selBest(pop, 1)[0]
         best_fitness_history.append(best_ind.fitness.values[0])
         progress.progress((gen + 1) / n_generations)
-
-    st.write(f"Optimal Conditions for Minimal Pressure Gradient:")
+        logger.info(f"Generation {gen + 1}/{n_generations}: Best fitness = {best_ind.fitness.values[0]:.2f}")
+    
+    output_container.empty()
+    st.subheader("Optimal Conditions for Minimal Pressure Gradient")
     st.write(f"Conduit Size: {best_ind[0]} in")
     st.write(f"Production Rate: {best_ind[1]} stb/day")
-    st.write(f"GLR: {best_ind[2]:.2f}")
+    st.write(f"GLR: {best_ind[2]:.2f} SCF/STB")
     st.write(f"Predicted Pressure Gradient: {best_fitness_history[-1]:.2f} psi")
+    logger.info(f"Optimization complete: Conduit {best_ind[0]}, Production {best_ind[1]}, GLR {best_ind[2]:.2f}, Fitness {best_fitness_history[-1]:.2f}")
     
     # Plot fitness evolution
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -415,20 +460,32 @@ def run_machine_learning():
             st.subheader("Generated Data Preview")
             st.dataframe(df_ml.head())
         
-        model, scaler = train_neural_network(st.session_state.df_ml)
-        if model is None:
-            st.error("Training failed.")
-            return
-        st.session_state.model = model
-        st.session_state.scaler = scaler
-        st.success("Training complete!")
+        try:
+            model, scaler = train_neural_network(st.session_state.df_ml)
+            if model is None:
+                st.error("Training failed.")
+                return
+            st.session_state.model = model
+            st.session_state.scaler = scaler
+            st.success("Training complete!")
+        except Exception as e:
+            st.error(f"Error in Machine Learning mode: {str(e)}")
+            logger.error(f"Error in Machine Learning mode: {str(e)}")
 
     if 'model' in st.session_state:
         option = st.selectbox(
             "Choose Analysis Type:",
-            ["Parameter Analysis", "Optimize Conditions"]
+            ["Parameter Analysis", "Optimize Conditions"],
+            key="analysis_type_selectbox"
         )
-        if option == "Parameter Analysis":
-            analyze_parameter_effects(st.session_state.model, st.session_state.scaler, st.session_state.df_ml)
-        elif option == "Optimize Conditions":
-            optimize_neural_network_conditions(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, n_generations)
+        logger.info(f"Selected analysis type: {option}")
+        try:
+            if option == "Parameter Analysis":
+                logger.info("Running parameter analysis")
+                analyze_parameter_effects(st.session_state.model, st.session_state.scaler, st.session_state.df_ml)
+            elif option == "Optimize Conditions":
+                logger.info("Running optimization")
+                optimize_neural_network_conditions(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, n_generations)
+        except Exception as e:
+            st.error(f"Error in analysis: {str(e)}")
+            logger.error(f"Error in analysis: {str(e)}")
