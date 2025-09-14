@@ -453,16 +453,6 @@ def run_random_point_generator():
                     logger.error(f"No data found for conduit size {conduit_size} and production_rate {production_rate}.")
                     return
 
-                # Calculate max_x for the Streamlit plot
-                coeffs = [entry['coefficients'][k] for k in sorted(entry['coefficients'].keys())] if not all_glr else [filtered_data[0]['coefficients'][k] for k in sorted(filtered_data[0]['coefficients'].keys())]
-                x_values = np.linspace(0, 4000, 1000)
-                y_values = [calc_y1(x, coeffs) for x in x_values]
-                max_x = 4000
-                for x, y in zip(x_values, y_values):
-                    if y is not None and y >= 31000:
-                        max_x = x
-                        break
-
                 if all_glr:
                     zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -492,20 +482,34 @@ def run_random_point_generator():
                     df['conduit_size'] = conduit_size
                     df['production_rate'] = production_rate
                     df['glr'] = glr
+                    # Calculate max_x for the plot
+                    coeffs = [entry['coefficients'][k] for k in sorted(entry['coefficients'].keys())]
+                    x_values = np.linspace(0, 4000, 1000)
+                    y_values = [calc_y1(x, coeffs) for x in x_values]
+                    max_x = 4000
+                    for x, y in zip(x_values, y_values):
+                        if y is not None and y >= 31000:
+                            max_x = x
+                            break
                     # Display data for single GLR
                     st.subheader("Generated Data")
                     st.dataframe(df)
-                    # Plot data
+                    # Plot data (show one well path for clarity)
                     fig, ax = plt.subplots()
                     # Add GLR curve
                     p1_full = np.linspace(0, max_x, 100)
-                    y1_full = [calc_y1(p, [entry['coefficients'][k] for k in sorted(entry['coefficients'].keys())]) for p in p1_full]
+                    y1_full = [calc_y1(p, coeffs) for p in p1_full]
                     y1_full = [y if y is not None and y <= 31000 else 31000 for y in y1_full]
                     ax.plot(p1_full, y1_full, color='blue', label='GLR Curve')
-                    # Well path and well length lines
-                    for idx, row in df.iterrows():
-                        ax.plot([row['p1'], row['p2']], [row['y1'], row['y2']], color='red', label='Well Path' if idx == 0 else None)
-                        ax.plot([row['p1'], row['p1']], [row['y1'], row['y2']], color='blue', linestyle='--', label='Well Length' if idx == 0 else None)
+                    # Select one random row for the well path
+                    if not df.empty:
+                        row = df.sample(n=1, random_state=42).iloc[0]
+                        # Well path (single red line)
+                        ax.plot([row['p1'], row['p2']], [row['y1'], row['y2']], color='red', label='Well Path')
+                        # Well length (blue dashed line)
+                        ax.plot([row['p1'], row['p1']], [row['y1'], row['y2']], color='blue', linestyle='--', label='Well Length')
+                        # Add markers for clarity
+                        ax.scatter([row['p1'], row['p2']], [row['y1'], row['y2']], color='blue', s=50, label='Points' if row.name == 0 else None)
                     ax.set_xlabel("Gradient Pressure, psi")
                     ax.set_ylabel("Depth, ft")
                     ax.set_xlim(0, max_x)
