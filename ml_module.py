@@ -217,6 +217,15 @@ def get_valid_glr_range(conduit_size, production_rate):
     ranges = INTERPOLATION_RANGES.get((conduit_size, production_rate), [])
     return min(r[0] for r in ranges) if ranges else 0, max(r[1] for r in ranges) if ranges else 25000
 
+def get_valid_glrs(reference_data, conduit_size, production_rate):
+    """
+    Get the list of valid discrete GLR values for the given conduit_size and production_rate.
+    """
+    return sorted([
+        entry['glr'] for entry in reference_data
+        if entry['conduit_size'] == conduit_size and entry['production_rate'] == production_rate
+    ])
+
 def evaluate_individual(individual, model, scaler):
     features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
     conduit_size, production_rate, glr = individual
@@ -228,7 +237,7 @@ def evaluate_individual(individual, model, scaler):
     prediction = model.predict(input_scaled, verbose=0)[0][0]
     return (prediction,)
 
-def custom_mutation(individual, indpb, conduit_sizes, production_rates, glr_min, glr_max):
+def custom_mutation(individual, indpb, conduit_sizes, production_rates, valid_glrs):
     """
     Custom mutation to ensure valid conduit_size, production_rate, and GLR.
     """
@@ -236,11 +245,11 @@ def custom_mutation(individual, indpb, conduit_sizes, production_rates, glr_min,
         individual[0] = random.choice(conduit_sizes)  # conduit_size
     if random.random() < indpb:
         individual[1] = random.choice(production_rates)  # production_rate
-    if random.random() < indpb:
-        individual[2] = random.uniform(glr_min, glr_max)  # GLR
+    if random.random() < indpb and valid_glrs:
+        individual[2] = random.choice(valid_glrs)  # GLR
     return individual,
 
-def optimize_neural_network_conditions(model, scaler, df_ml, n_generations=20):
+def optimize_neural_network_conditions(model, scaler, df_ml, reference_data, n_generations=20):
     """
     Optimize neural network conditions using a genetic algorithm with constrained values.
     """
@@ -260,20 +269,20 @@ def optimize_neural_network_conditions(model, scaler, df_ml, n_generations=20):
     toolbox = base.Toolbox()
     toolbox.register("attr_conduit", random.choice, conduit_sizes)
     toolbox.register("attr_prod", random.choice, production_rates)
-    # Use dynamic GLR range based on initial conduit_size and production_rate
+    # Use discrete GLR values from reference_data
     def attr_glr():
         conduit = random.choice(conduit_sizes)
         prod = random.choice(production_rates)
-        glr_min, glr_max = get_valid_glr_range(conduit, prod)
-        return random.uniform(glr_min, glr_max)
+        valid_glrs = get_valid_glrs(reference_data, conduit, prod)
+        return random.choice(valid_glrs) if valid_glrs else random.uniform(0, 25000)
     toolbox.register("attr_glr", attr_glr)
     toolbox.register("individual", tools.initCycle, creator.Individual,
                      (toolbox.attr_conduit, toolbox.attr_prod, toolbox.attr_glr), n=1)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
     toolbox.register("evaluate", evaluate_individual, model=model, scaler=scaler)
-    toolbox.register("mate", tools.cxTwoPoint)  # Use two-point crossover to avoid blending
+    toolbox.register("mate", tools.cxTwoPoint)
     toolbox.register("mutate", custom_mutation, indpb=0.2, conduit_sizes=conduit_sizes,
-                     production_rates=production_rates, glr_min=0, glr_max=25000)
+                     production_rates=production_rates, valid_glrs=[])
     toolbox.register("select", tools.selTournament, tournsize=3)
     
     pop = toolbox.population(n=50)
@@ -293,17 +302,17 @@ def optimize_neural_network_conditions(model, scaler, df_ml, n_generations=20):
                 # Snap values to valid options after crossover
                 child1[0] = min(conduit_sizes, key=lambda x: abs(x - child1[0]))
                 child1[1] = min(production_rates, key=lambda x: abs(x - child1[1]))
-                glr_min, glr_max = get_valid_glr_range(child1[0], child1[1])
-                child1[2] = max(glr_min, min(glr_max, child1[2]))
+                valid_glrs = get_valid_glrs(reference_data, child1[0], child1[1])
+                child1[2] = min(valid_glrs, key=lambda x: abs(x - child1[2])) if valid_glrs else child1[2]
                 child2[0] = min(conduit_sizes, key=lambda x: abs(x - child2[0]))
                 child2[1] = min(production_rates, key=lambda x: abs(x - child2[1]))
-                glr_min, glr_max = get_valid_glr_range(child2[0], child2[1])
-                child2[2] = max(glr_min, min(glr_max, child2[2]))
+                valid_glrs = get_valid_glrs(reference_data, child2[0], child2[1])
+                child2[2] = min(valid_glrs, key=lambda x: abs(x - child2[2])) if valid_glrs else child2[2]
                 del child1.fitness.values
                 del child2.fitness.values
         for mutant in offspring:
-            glr_min, glr_max = get_valid_glr_range(mutant[0], mutant[1])
-            toolbox.mutate(mutant, glr_min=glr_min, glr_max=glr_max)
+            valid_glrs = get_valid_glrs(reference_data, mutant[0], mutant[1])
+            toolbox.mutate(mutant, valid_glrs=valid_glrs)
             del mutant.fitness.values
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
         fitnesses = map(toolbox.evaluate, invalid_ind)
@@ -457,6 +466,7 @@ def run_machine_learning():
                 st.error("Failed to generate ML data.")
                 return
             st.session_state.df_ml = df_ml
+            st.session_state.reference_data = reference_data
             st.subheader("Generated Data Preview")
             st.dataframe(df_ml.head())
         
@@ -485,7 +495,7 @@ def run_machine_learning():
                 analyze_parameter_effects(st.session_state.model, st.session_state.scaler, st.session_state.df_ml)
             elif option == "Optimize Conditions":
                 logger.info("Running optimization")
-                optimize_neural_network_conditions(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, n_generations)
+                optimize_neural_network_conditions(st.session_state.model, st.session_state.scaler, st.session_state.df_ml, st.session_state.reference_data, n_generations)
         except Exception as e:
             st.error(f"Error in analysis: {str(e)}")
             logger.error(f"Error in analysis: {str(e)}")
