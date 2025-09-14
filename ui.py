@@ -73,7 +73,7 @@ def run_p2_finder(reference_data, interpolation_ranges, production_rates):
         )
         st.session_state.p2_finder_inputs['production_rate'] = production_rate
         
-        valid_glrs_dict = {pr: [float(glr) for glr in glrs] for pr, glrs in valid_glrs.items()}
+        valid_glrs_dict = {pr: [float(glr) for gl,line glr in glrs] for pr, glrs in valid_glrs.items()}
         glr_option = st.selectbox(
             "GLR (scf/stb):",
             ["Custom"] + valid_glrs_dict.get(production_rate, []),
@@ -476,8 +476,12 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         logger.error("Invalid well length: D <= 0")
                         return
                     
+                    # Debug inputs
+                    logger.info(f"Calling calculate_tpr_points with conduit_size={conduit_size}, glr={glr}, D={D}, pwh={pwh}, reference_data={reference_data}")
+                    st.write(f"Debug: Calling calculate_tpr_points with conduit_size={conduit_size}, glr={glr}, D={D}, pwh={pwh}")
+
                     # Calculate TPR points
-                    tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, data_ref=reference_data)
+                    tpr_points = calculate_tpr_points(conduit_size, glr, D, pwh, reference_data)
                     if tpr_points is None:
                         st.error("Failed to calculate TPR points. Check input data and reference data.")
                         logger.error("TPR points calculation returned None")
