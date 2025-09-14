@@ -49,12 +49,13 @@ def load_reference_data():
                 continue
             parts = name.split()
             try:
-                conduit_size = round(float(parts[0]), 3)
-                if conduit_size not in [2.875, 3.5]:
-                    conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
+                conduit_size = float(parts[0])
+                conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
+                if abs(conduit_size - float(parts[0])) > 1e-6:
+                    logger.warning(f"Corrected conduit_size from {parts[0]} to {conduit_size} in row {index}")
                 production_rate = float(parts[2])
                 glr = float(parts[4].replace('glr', ''))
-                if glr < 5000:  # Filter out unrealistic GLR values
+                if glr < 5000:
                     logger.warning(f"Skipping row {index} with GLR {glr} < 5000")
                     continue
                 coefficients = {
@@ -89,7 +90,7 @@ def load_reference_data():
 def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=None, min_D=1000):
     """
     Generate ML data using random_point_generator's generate_df function.
-    Ensure valid conduit_size and GLR values.
+    Ensure exact conduit_size and valid GLR values.
     """
     conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
     dfs_ml = []
@@ -99,7 +100,7 @@ def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=
         entry for entry in reference_data 
         if abs(entry['conduit_size'] - conduit_size) < 1e-6 
         and entry['production_rate'] == production_rate
-        and (glr is None or entry['glr'] == glr)
+        and (glr is None or abs(entry['glr'] - glr) < 1e-6)
     ]
     
     if not filtered_data:
@@ -115,7 +116,7 @@ def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=
         if df_temp is None or df_temp.empty:
             logger.warning(f"Failed to generate data for conduit={entry['conduit_size']}, prod={entry['production_rate']}, glr={entry['glr']}")
             continue
-        df_temp['conduit_size'] = conduit_size  # Use validated conduit_size
+        df_temp['conduit_size'] = conduit_size
         df_temp['production_rate'] = entry['production_rate']
         df_temp['GLR'] = entry['glr']
         dfs_ml.append(df_temp)
@@ -123,15 +124,24 @@ def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=
     
     df_ml = pd.concat(dfs_ml, ignore_index=True) if dfs_ml else None
     if df_ml is not None:
-        df_ml['conduit_size'] = conduit_size  # Ensure exact value
+        # Validate discrete columns
+        df_ml['conduit_size'] = conduit_size
+        invalid_conduits = df_ml[~df_ml['conduit_size'].isin([2.875, 3.5])]
+        if not invalid_conduits.empty:
+            logger.warning(f"Invalid conduit_size values in df_ml: {invalid_conduits['conduit_size'].unique()}")
         df_ml['production_rate'] = df_ml['production_rate'].apply(lambda x: min(PRODUCTION_RATES, key=lambda v: abs(v - x)))
         valid_glrs = get_valid_glrs(reference_data, conduit_size, production_rate)
         if valid_glrs:
             df_ml['GLR'] = df_ml['GLR'].apply(lambda x: min(valid_glrs, key=lambda v: abs(v - x)))
+            invalid_glrs = df_ml[df_ml['GLR'] < 5000]
+            if not invalid_glrs.empty:
+                logger.warning(f"Invalid GLR values in df_ml: {invalid_glrs['GLR'].unique()}")
         else:
             st.warning(f"No valid GLRs for conduit {conduit_size} in, production {production_rate} stb/day")
             logger.warning(f"No valid GLRs for conduit={conduit_size}, prod={production_rate}")
             return None
+        st.write("Debug: df_ml conduit_size unique values:", df_ml['conduit_size'].unique())
+        st.write("Debug: df_ml GLR unique values:", df_ml['GLR'].unique())
     return df_ml
 
 def train_neural_network(df_ml):
@@ -172,6 +182,7 @@ def get_valid_glrs(reference_data, conduit_size, production_rate):
     valid_glrs = sorted([
         entry['glr'] for entry in reference_data
         if abs(entry['conduit_size'] - conduit_size) < 1e-6 and entry['production_rate'] == production_rate
+        and entry['glr'] >= 5000
     ])
     logger.info(f"Valid GLRs for conduit_size={conduit_size}, production_rate={production_rate}: {valid_glrs}")
     st.write(f"Debug: Valid GLRs for conduit {conduit_size} in, production {production_rate} stb/day:", valid_glrs)
@@ -190,7 +201,7 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data, conduit_size,
     
     features = ['p1', 'D', 'y1', 'y2', 'conduit_size', 'production_rate', 'GLR']
     
-    # Use user-selected conduit_size and production_rate
+    # Ensure exact conduit_size
     conduit_size = min([2.875, 3.5], key=lambda x: abs(x - conduit_size))
     base_values = {
         'conduit_size': conduit_size,
@@ -284,7 +295,6 @@ def run_sensitivity_analysis(model, scaler, df_ml, reference_data, conduit_size,
                 })
                 st.dataframe(df_results)
                 
-                # CSV export
                 csv = df_results.to_csv(index=False)
                 st.download_button(f"Download {param} Results", csv, f"{param}_sensitivity.csv")
                 
@@ -316,7 +326,7 @@ def analyze_parameter_effects(model, scaler, df_ml):
             st.subheader(f"Effect of GLR (Conduit: {conduit_size} in, Production: {production_rate} stb/day)")
             st.pyplot(fig)
 
-    glr_values = np.linspace(5000, 25000, 100)  # Avoid low GLR values
+    glr_values = np.linspace(5000, 25000, 100)
     base_values = df_ml[features].mean().to_dict()
     X_test_glr = pd.DataFrame([base_values] * 100)
     X_test_glr['GLR'] = glr_values
