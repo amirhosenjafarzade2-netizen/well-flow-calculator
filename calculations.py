@@ -10,6 +10,31 @@ import warnings
 # Initialize logger
 logger = setup_logging()
 
+def find_pressure(target_depth, coeffs, pressure_min=0, pressure_max=4000):
+    """
+    Solve for pressure p such that polynomial(p, coeffs) == target_depth.
+    Assumes polynomial models depth = f(pressure).
+    Uses numerical root finding within a reasonable pressure bracket.
+    Returns p or None if no solution.
+    """
+    def func(p):
+        return polynomial(p, coeffs) - target_depth
+    
+    try:
+        result = root_scalar(func, bracket=[pressure_min, pressure_max], method='brentq')
+        if result.converged:
+            logger.info(f"Found pressure {result.root:.2f} for depth {target_depth:.2f}")
+            return result.root
+        else:
+            logger.warning(f"Root solver did not converge for depth {target_depth:.2f}")
+            return None
+    except ValueError as e:
+        logger.error(f"Root solver error for depth {target_depth:.2f}: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error in find_pressure: {str(e)}")
+        return None
+
 @st.cache_data
 def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref):
     """
@@ -132,17 +157,16 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
         if production_interpolation_status == "exact":
             coeffs = coeffs1
             y_final = y1
-            p2 = polynomial(y1 + D, coeffs)
         else:
             weight = (production_rate - prate1) / (prate2 - prate1)
             coeffs = {}
             for key in coeffs1:
                 coeffs[key] = coeffs1[key] + weight * (coeffs2[key] - coeffs1[key])
             y_final = y1 + weight * (y2 - y1)
-            p2 = polynomial(y_final + D, coeffs)
 
-        if not np.isfinite(p2):
-            logger.error(f"Invalid p2={p2} from polynomial calculation")
+        p2 = find_pressure(y_final + D, coeffs)
+        if p2 is None or not np.isfinite(p2):
+            logger.error(f"Invalid p2={p2} from inverse calculation")
             return None, None, None, None, None, None, None
 
         logger.info(f"Calculated: y1={y1:.2f}, y2={y_final:.2f}, p2={p2:.2f}, interpolation_status={production_interpolation_status}")
