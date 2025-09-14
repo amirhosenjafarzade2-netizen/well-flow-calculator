@@ -1,4 +1,3 @@
-# random_point_generator.py
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -158,29 +157,42 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
                 df_graph = df
             for sheet_num in range(1, min(num_graph_sheets + 1, len(df_graph) + 1)):
                 idx = sheet_num - 1
-                # Write subset to a hidden sheet for chart data
+                row = df_graph.iloc[idx]
                 sheet_name = f'Data_{sheet_num}'
-                df_graph.iloc[[idx]].to_excel(writer, sheet_name=sheet_name, index=False)
-                worksheet = writer.sheets[sheet_name]
+                worksheet = workbook.add_worksheet(sheet_name)
                 worksheet.hide()
+
+                # Write 2-point line (p1,y1) → (p2,y2)
+                worksheet.write_row(0, 0, ["p", "y"])
+                worksheet.write_row(1, 0, [row['p1'], row['y1']])
+                worksheet.write_row(2, 0, [row['p2'], row['y2']])
+
+                # Write vertical well length (p1,y1) → (p1,y2)
+                worksheet.write_row(4, 0, ["p", "y"])
+                worksheet.write_row(5, 0, [row['p1'], row['y1']])
+                worksheet.write_row(6, 0, [row['p1'], row['y2']])
+
                 chart_sheet = workbook.add_chartsheet(f'Graph {sheet_num}')
                 chart = workbook.add_chart({'type': 'scatter', 'subtype': 'straight_with_markers'})
-                # Plot line from (p1, y1) to (p2, y2)
+
+                # Well path
                 chart.add_series({
                     'name': f'Well Path {sheet_num}',
-                    'categories': [sheet_name, 1, 3, 1, 7],  # p1 (col 3), p2 (col 7)
-                    'values': [sheet_name, 1, 5, 1, 6],      # y1 (col 5), y2 (col 6)
+                    'categories': [sheet_name, 1, 0, 2, 0],  # col0 = p
+                    'values': [sheet_name, 1, 1, 2, 1],      # col1 = y
                     'line': {'color': 'red'},
-                    'marker': {'type': 'circle', 'size': 5, 'fill': {'color': 'red'}}
+                    'marker': {'type': 'circle', 'size': 6, 'fill': {'color': 'red'}}
                 })
-                # Plot vertical well length line from (p1, y1) to (p1, y2)
+
+                # Well length (vertical)
                 chart.add_series({
                     'name': f'Well Length {sheet_num}',
-                    'categories': [sheet_name, 1, 3, 1, 3],  # p1 (col 3)
-                    'values': [sheet_name, 1, 5, 1, 6],      # y1 (col 5), y2 (col 6)
+                    'categories': [sheet_name, 5, 0, 6, 0],
+                    'values': [sheet_name, 5, 1, 6, 1],
                     'line': {'color': 'blue', 'dash_type': 'dash'},
                     'marker': {'type': 'none'}
                 })
+
                 chart.set_x_axis({
                     'name': 'Gradient Pressure, psi',
                     'min': 0,
