@@ -3,16 +3,20 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import xlsxwriter
-import zipfile
 import io
 from scipy.optimize import fsolve, bisect
 from data_loader import load_reference_data
 from config import PRODUCTION_RATES, INTERPOLATION_RANGES, COLORS
 from utils import export_plot_to_png, setup_logging
+import re
 
 logger = setup_logging()
 
 def parse_cell(cell):
+    """
+    Parse a cell reference (e.g., 'A1') into row and column indices.
+    Returns (row, col) or raises ValueError.
+    """
     try:
         col = ord(cell[0].upper()) - ord('A')
         row = int(cell[1:]) - 1
@@ -23,6 +27,10 @@ def parse_cell(cell):
         raise ValueError(f"Invalid cell reference format: {cell}. Use format like A1.")
 
 def calc_y1(p, coeffs):
+    """
+    Calculate y1 (wellhead depth) using polynomial coefficients.
+    Returns y1 (float) or None if calculation fails.
+    """
     try:
         y = 0
         for i, coef in enumerate(coeffs):
@@ -30,10 +38,15 @@ def calc_y1(p, coeffs):
         if not np.isfinite(y):
             return None
         return y
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to calculate y1: {str(e)}")
         return None
 
 def solve_p2(y2_val, p1, coeffs):
+    """
+    Solve for p2 (bottomhole pressure) given y2, p1, and coefficients.
+    Returns p2 (float) or None if calculation fails.
+    """
     def polynomial(x, coeffs):
         try:
             y = 0
@@ -53,14 +66,15 @@ def solve_p2(y2_val, p1, coeffs):
         if not (0 <= p2 <= 4000) or not np.isfinite(p2):
             return None
         return p2
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to solve p2: {str(e)}")
         return None
 
 def run_random_point_generator():
     """UI for generating and visualizing random well performance data using reference Excel data."""
     st.subheader("Random Point Generator")
     
-    # Load reference data (using Excel from GitHub via data_loader)
+    # Load reference data
     if "REFERENCE_DATA" not in st.session_state:
         logger.info("Loading reference data for Random Point Generator...")
         reference_data = load_reference_data()
@@ -104,9 +118,10 @@ def run_random_point_generator():
         min_D = st.number_input(
             "Minimum Value for D (ft):",
             min_value=0.0,
+            max_value=31000.0,
             value=st.session_state.random_point_inputs['min_D'],
             step=100.0,
-            help="Minimum well length for random generation."
+            help="Minimum well length for random generation (0 to 31000 ft)."
         )
         st.session_state.random_point_inputs['min_D'] = min_D
 
@@ -127,16 +142,22 @@ def run_random_point_generator():
         )
         st.session_state.random_point_inputs['production_rate'] = production_rate
 
-    generate_graphs = st.checkbox("Generate graph sheets in Excel?")
+    generate_graphs = st.checkbox(
+        "Generate graph sheets in Excel?",
+        value=st.session_state.random_point_inputs['generate_graphs'],
+        help="Check to include graph sheets in the output Excel file."
+    )
     st.session_state.random_point_inputs['generate_graphs'] = generate_graphs
+
     num_graph_sheets = 0
     if generate_graphs:
         num_graph_sheets = st.number_input(
-            "How many graph sheets? (up to 10)",
+            "How many graph sheets? (1–10)",
             min_value=1,
             max_value=10,
             value=st.session_state.random_point_inputs['num_graph_sheets'],
-            step=1
+            step=1,
+            help="Number of graph sheets to include in the Excel file."
         )
         st.session_state.random_point_inputs['num_graph_sheets'] = num_graph_sheets
 
@@ -153,19 +174,29 @@ def run_random_point_generator():
                     logger.error(f"No data found for conduit size {conduit_size} and production rate {production_rate}.")
                     return
 
-                # Get valid GLR ranges for the selected conduit size and production rate
+                # Get valid GLR ranges and coefficients
                 valid_glr_ranges = INTERPOLATION_RANGES.get((conduit_size, production_rate), [(100, 1000)])
                 min_glr, max_glr = min([r[0] for r in valid_glr_ranges]), max([r[1] for r in valid_glr_ranges])
+                coeffs = filtered_data[0]['coefficients']  # Use first matching entry's coefficients
 
                 # Generate random data
                 data = {
                     'conduit_size': [conduit_size] * num_points,
                     'production_rate': [production_rate] * num_points,
                     'glr': np.random.uniform(min_glr, max_glr, size=num_points),
-                    'pressure': np.random.uniform(0, 4000, size=num_points),  # From ui.py constraints
-                    'depth': np.random.uniform(min_D, 31000, size=num_points)  # From user input and ui.py constraints
+                    'p1': np.random.uniform(0, 4000, size=num_points),  # Wellhead pressure
+                    'D': np.random.uniform(min_D, 31000, size=num_points)  # Depth
                 }
                 df = pd.DataFrame(data)
+
+                # Calculate y1 and p2 using coefficients
+                df['y1'] = df['p1'].apply(lambda p: calc_y1(p, [coeffs[f] for f in ['a', 'b', 'c', 'd', 'e', 'f']]))
+                df['p2'] = [solve_p2(y1 + D, p1, [coeffs[f] for f in ['a', 'b', 'c', 'd', 'e', 'f']]) 
+                            for y1, p1, D in zip(df['y1'], df['p1'], df['D'])]
+                df['y2'] = df['y1'] + df['D']
+
+                # Drop rows with invalid calculations
+                df = df.dropna()
 
                 # Store results in session state
                 st.session_state.random_point_results = df
@@ -176,11 +207,12 @@ def run_random_point_generator():
 
                 # Plot data
                 fig, ax = plt.subplots()
-                scatter = ax.scatter(df['production_rate'], df['pressure'], c=df['glr'], cmap='viridis', alpha=0.6)
-                ax.set_xlabel("Production Rate (stb/day)")
-                ax.set_ylabel("Pressure (psi)")
+                scatter = ax.scatter(df['p1'], df['y1'], c=df['glr'], cmap='viridis', alpha=0.6)
+                ax.set_xlabel("Wellhead Pressure (p1, psi)")
+                ax.set_ylabel("Wellhead Depth (y1, ft)")
                 ax.set_title(f"Random Well Performance Data (Conduit Size: {conduit_size} in, Production Rate: {production_rate} stb/day)")
                 plt.colorbar(scatter, label="GLR (scf/stb)")
+                ax.invert_yaxis()  # Depth increases downward
                 st.pyplot(fig)
 
                 # Export plot
@@ -205,16 +237,44 @@ def run_random_point_generator():
                         for sheet_num in range(1, num_graph_sheets + 1):
                             chart_sheet = workbook.add_chartsheet(f'Graph {sheet_num}')
                             chart = workbook.add_chart({'type': 'scatter', 'subtype': 'straight'})
-                            # Example series (adapt as needed)
+                            # Add series for p1 vs y1
                             chart.add_series({
-                                'name': 'Pressure vs Depth',
-                                'categories': ['Points', 1, 4, num_points, 4],  # Example: depth column (index 4)
-                                'values': ['Points', 1, 3, num_points, 3],  # Example: pressure column (index 3)
-                                'line': {'color': 'blue'}
+                                'name': f'p1 vs y1 (Graph {sheet_num})',
+                                'categories': ['Points', 1, 4, len(df), 4],  # y1 column
+                                'values': ['Points', 1, 3, len(df), 3],  # p1 column
+                                'line': {'color': COLORS[(sheet_num - 1) % len(COLORS)]}
                             })
-                            # Configure axes (adapt as needed)
-                            chart.set_x_axis({'name': 'Gradient Pressure, psi'})
-                            chart.set_y_axis({'name': 'Depth, ft', 'reverse': True})
+                            # Configure axes
+                            chart.set_x_axis({
+                                'name': 'Wellhead Pressure (p1, psi)',
+                                'min': 0,
+                                'max': 4000,
+                                'major_unit': 1000,
+                                'minor_unit': 200,
+                                'name_font': {'color': 'black'},
+                                'num_font': {'color': 'black'},
+                                'line': {'color': 'black'},
+                                'major_gridlines': {'visible': True, 'line': {'color': '#D3D3D3'}},
+                                'minor_gridlines': {'visible': True, 'line': {'color': '#D3D3D3', 'width': 0.5}}
+                            })
+                            chart.set_y_axis({
+                                'name': 'Wellhead Depth (y1, ft)',
+                                'min': 0,
+                                'max': 31000,
+                                'major_unit': 10000,
+                                'minor_unit': 2000,
+                                'reverse': True,
+                                'name_font': {'color': 'black'},
+                                'num_font': {'color': 'black'},
+                                'line': {'color': 'black'},
+                                'major_gridlines': {'visible': True, 'line': {'color': '#D3D3D3'}},
+                                'minor_gridlines': {'visible': True, 'line': {'color': '#D3D3D3', 'width': 0.5}}
+                            })
+                            chart.set_legend({
+                                'position': 'right',
+                                'font': {'size': 8}
+                            })
+                            chart.set_size({'width': 1000, 'height': 600})
                             chart_sheet.set_chart(chart)
 
                 excel_buffer.seek(0)
@@ -226,7 +286,7 @@ def run_random_point_generator():
                 )
 
             except Exception as e:
-                st.error(f"Failed to generate random points: {str(e)}")
+                st.error(f"An unexpected error occurred: {str(e)}")
                 logger.error(f"Random point generation failed: {str(e)}")
 
     st.write("**Generation Logs**")
