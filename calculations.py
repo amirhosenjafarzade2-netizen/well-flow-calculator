@@ -1,10 +1,11 @@
 import streamlit as st
 import numpy as np
-from scipy.optimize import root_scalar, curve_fit
+from scipy.optimize import root_scalar, curve_fit, OptimizeWarning
 from scipy.interpolate import interp1d
 from config import INTERPOLATION_RANGES, PRODUCTION_RATES
 from utils import polynomial, setup_logging
-from validators import validate_conduit_size, validate_production_rate, validate_glr
+from validators import validate_conduit_size, validate_production_rate, validate_glr, validate_fetkovich_parameters
+import warnings
 
 # Initialize logger
 logger = setup_logging()
@@ -82,308 +83,240 @@ def calculate_results(conduit_size, production_rate, glr_input, p1, D, data_ref)
                 abs(entry['production_rate'] - production_rate) < 1e-6 and
                 valid_range[0] <= entry['glr'] <= valid_range[1])
         ]
-        if not relevant_rows:
-            logger.error(f"No data points for conduit {conduit_size}, production {production_rate}, GLR range {valid_range}")
-            return None, None, None, None
-
         relevant_rows.sort(key=lambda x: x['glr'])
-        logger.debug(f"Relevant rows: {[r['glr'] for r in relevant_rows]}")
-
-        if len(relevant_rows) == 1:
-            if abs(relevant_rows[0]['glr'] - glr_input) < 1e-6:
-                logger.info(f"Single exact match: coefficients={relevant_rows[0]['coefficients']}")
-                return relevant_rows[0]['coefficients'], glr_input, glr_input, "exact"
-            logger.warning(f"Only one GLR point ({relevant_rows[0]['glr']}) available, cannot interpolate")
+        if len(relevant_rows) < 2:
+            logger.error(f"Insufficient data points for interpolation: {len(relevant_rows)} found")
             return None, None, None, None
 
-        lower_row = max([r for r in relevant_rows if r['glr'] <= glr_input], key=lambda x: x['glr'], default=relevant_rows[0])
-        higher_row = min([r for r in relevant_rows if r['glr'] >= glr_input], key=lambda x: x['glr'], default=relevant_rows[-1])
-        glr1, glr2 = lower_row['glr'], higher_row['glr']
-        logger.debug(f"Interpolation GLRs: glr1={glr1}, glr2={glr2}")
+        glr1 = max([entry['glr'] for entry in relevant_rows if entry['glr'] <= glr_input], default=valid_range[0])
+        glr2 = min([entry['glr'] for entry in relevant_rows if entry['glr'] >= glr_input], default=valid_range[1])
+        if glr1 == glr2:
+            for entry in relevant_rows:
+                if abs(entry['glr'] - glr1) < 1e-6:
+                    return entry['coefficients'], glr1, glr2, "exact"
 
-        if abs(glr1 - glr2) < 1e-6:
-            logger.info(f"Using exact coefficients for glr={glr1}")
-            return lower_row['coefficients'], glr1, glr2, "exact"
+        coeffs1 = None
+        coeffs2 = None
+        for entry in relevant_rows:
+            if abs(entry['glr'] - glr1) < 1e-6:
+                coeffs1 = entry['coefficients']
+            if abs(entry['glr'] - glr2) < 1e-6:
+                coeffs2 = entry['coefficients']
 
-        fraction = (glr_input - glr1) / (glr2 - glr1)
-        if not (0 <= fraction <= 1):
-            logger.warning(f"Invalid interpolation fraction: {fraction}")
+        if coeffs1 is None or coeffs2 is None:
+            logger.error(f"Could not find coefficients for glr1={glr1}, glr2={glr2}")
             return None, None, None, None
 
-        coeffs = {
-            'a': lower_row['coefficients']['a'] + fraction * (higher_row['coefficients']['a'] - lower_row['coefficients']['a']),
-            'b': lower_row['coefficients']['b'] + fraction * (higher_row['coefficients']['b'] - lower_row['coefficients']['b']),
-            'c': lower_row['coefficients']['c'] + fraction * (higher_row['coefficients']['c'] - lower_row['coefficients']['c']),
-            'd': lower_row['coefficients']['d'] + fraction * (higher_row['coefficients']['d'] - lower_row['coefficients']['d']),
-            'e': lower_row['coefficients']['e'] + fraction * (higher_row['coefficients']['e'] - lower_row['coefficients']['e']),
-            'f': lower_row['coefficients']['f'] + fraction * (higher_row['coefficients']['f'] - lower_row['coefficients']['f'])
-        }
-        logger.info(f"Interpolated coefficients: {coeffs}")
+        # Linear interpolation of coefficients
+        weight = (glr_input - glr1) / (glr2 - glr1) if glr2 != glr1 else 0
+        coeffs = {}
+        for key in coeffs1:
+            coeffs[key] = coeffs1[key] + weight * (coeffs2[key] - coeffs1[key])
+        logger.info(f"Interpolated coefficients: {coeffs}, glr1={glr1}, glr2={glr2}")
         return coeffs, glr1, glr2, "interpolated"
 
-    coeffs1, glr1_lower, glr1_higher, glr_status1 = get_coefficients(conduit_size, prate1, glr_input, valid_range1, data_ref)
-    if coeffs1 is None:
-        logger.error(f"Failed to get coefficients for prate1={prate1}")
+    coeffs1, glr1_1, glr1_2, status1 = get_coefficients(conduit_size, prate1, glr_input, valid_range1, data_ref)
+    coeffs2, glr2_1, glr2_2, status2 = get_coefficients(conduit_size, prate2, glr_input, valid_range2, data_ref)
+    
+    if coeffs1 is None or coeffs2 is None:
+        logger.error("Failed to get coefficients for one or both production rates")
         return None, None, None, None, None, None, None
 
-    if production_interpolation_status == "exact":
-        coeffs, glr1, glr2, interpolation_status = coeffs1, glr1_lower, glr1_higher, glr_status1
-    else:
-        coeffs2, glr2_lower, glr2_higher, glr_status2 = get_coefficients(conduit_size, prate2, glr_input, valid_range2, data_ref)
-        if coeffs2 is None:
-            logger.error(f"Failed to get coefficients for prate2={prate2}")
-            return None, None, None, None, None, None, None
-        fraction_prate = (production_rate - prate1) / (prate2 - prate1)
-        if not (0 <= fraction_prate <= 1):
-            logger.warning(f"Invalid production rate interpolation fraction: {fraction_prate}")
-            return None, None, None, None, None, None, None
-        coeffs = {
-            'a': coeffs1['a'] + fraction_prate * (coeffs2['a'] - coeffs1['a']),
-            'b': coeffs1['b'] + fraction_prate * (coeffs2['b'] - coeffs1['b']),
-            'c': coeffs1['c'] + fraction_prate * (coeffs2['c'] - coeffs1['c']),
-            'd': coeffs1['d'] + fraction_prate * (coeffs2['d'] - coeffs1['d']),
-            'e': coeffs1['e'] + fraction_prate * (coeffs2['e'] - coeffs1['e']),
-            'f': coeffs1['f'] + fraction_prate * (coeffs2['f'] - coeffs1['f'])
-        }
-        glr1 = glr1_lower if glr_status1 == "exact" else min(glr1_lower, glr1_higher)
-        glr2 = glr2_higher if glr_status2 == "exact" else max(glr2_lower, glr2_higher)
-        interpolation_status = "interpolated" if glr_status1 == "interpolated" or glr_status2 == "interpolated" else "exact"
-        logger.info(f"Production rate interpolation: fraction={fraction_prate}, coeffs={coeffs}")
-
-    y1 = polynomial(p1, coeffs)
-    if not np.isfinite(y1) or y1 < 0 or y1 > 31000:
-        logger.error(f"Computed y1 ({y1:.2f} ft) is invalid or outside range 0 to 31000 ft")
-        return None, None, None, None, None, None, None
-
-    y2 = y1 + D
-    if y2 > 31000:
-        y2 = 31000
-        D_adjusted = y2 - y1
-        logger.info(f"Adjusted y2 to {y2:.2f} ft, D_adjusted={D_adjusted:.2f} ft to stay within 31000 ft")
-
-    def root_function(x, target_depth, coeffs):
-        return polynomial(x, coeffs) - target_depth
-
-    p2 = None
     try:
-        result = root_scalar(
-            root_function, args=(y2, coeffs),
-            bracket=[0, 4000], method='brentq'
-        )
-        if result.converged:
-            p2 = result.root
-    except ValueError as e:
-        logger.debug(f"Brentq failed for p2: {str(e)}")
-        try:
-            result = root_scalar(
-                root_function, args=(y2, coeffs),
-                x0=p1, x1=p1 + 100, method='secant'
-            )
-            if result.converged:
-                p2 = result.root
-        except ValueError as e:
-            logger.error(f"No valid p2 found for y2={y2:.2f} ft: {str(e)}")
+        y1 = polynomial(p1, coeffs1)
+        y2 = polynomial(p1, coeffs2)
+        if not (np.isfinite(y1) and np.isfinite(y2)):
+            logger.error(f"Invalid y1={y1} or y2={y2} from polynomial calculation")
             return None, None, None, None, None, None, None
 
-    if p2 is None or not np.isfinite(p2) or p2 < 0 or p2 > 4000:
-        logger.error(f"Computed p2 ({p2 if p2 is not None else 'None'} psi) is invalid or outside range 0 to 4000 psi")
+        if production_interpolation_status == "exact":
+            coeffs = coeffs1
+            y_final = y1
+            p2 = polynomial(y1 + D, coeffs)
+        else:
+            weight = (production_rate - prate1) / (prate2 - prate1)
+            coeffs = {}
+            for key in coeffs1:
+                coeffs[key] = coeffs1[key] + weight * (coeffs2[key] - coeffs1[key])
+            y_final = y1 + weight * (y2 - y1)
+            p2 = polynomial(y_final + D, coeffs)
+
+        if not np.isfinite(p2):
+            logger.error(f"Invalid p2={p2} from polynomial calculation")
+            return None, None, None, None, None, None, None
+
+        logger.info(f"Calculated: y1={y1:.2f}, y2={y_final:.2f}, p2={p2:.2f}, interpolation_status={production_interpolation_status}")
+        return y1, y_final, p2, coeffs, production_interpolation_status, glr1_1, glr2_1
+    except Exception as e:
+        logger.error(f"Calculation failed: {str(e)}")
         return None, None, None, None, None, None, None
 
-    logger.info(f"Calculated: y1={y1:.2f} ft, y2={y2:.2f} ft, p2={p2:.2f} psi, interpolation_status={interpolation_status}")
-    return y1, y2, p2, coeffs, interpolation_status, glr1, glr2
-
-@st.cache_data
-def calculate_tpr_points(conduit_size, glr, D, pwh, data_ref):
+def calculate_tpr_points(conduit_size, production_rate, glr, pwh, D, data_ref):
     """
-    Calculate TPR points for given conduit size, GLR, depth, and wellhead pressure.
-    Returns list of (production_rate, p2) tuples.
+    Calculate TPR points (Q0, p2) for given inputs.
+    Returns list of (Q0, p2) tuples or None if invalid.
     """
-    logger.info(f"calculate_tpr_points inputs: conduit_size={conduit_size}, glr={glr}, D={D}, pwh={pwh}")
-    if not validate_conduit_size(conduit_size):
-        logger.error(f"Invalid conduit size: {conduit_size}")
-        raise ValueError(f"Invalid conduit size: {conduit_size}")
-    if not validate_glr(conduit_size, PRODUCTION_RATES[0], glr):
-        logger.error(f"Invalid GLR {glr} for conduit size {conduit_size}")
-        raise ValueError(f"Invalid GLR {glr}")
-    if not np.isfinite(D) or D <= 0 or D > 31000:
-        logger.error(f"Invalid depth: D={D}")
-        raise ValueError(f"Invalid depth: {D}")
-    if not np.isfinite(pwh) or pwh < 0 or pwh > 4000:
-        logger.error(f"Invalid wellhead pressure: pwh={pwh}")
-        raise ValueError(f"Invalid wellhead pressure: {pwh}")
-
-    tpr_points = []
-    for prate in PRODUCTION_RATES:
-        try:
-            result = calculate_results(conduit_size, prate, glr, pwh, D, data_ref)
-            if result[0] is not None:
-                y1, y2, p2, coeffs, interpolation_status, glr1, glr2 = result
-                if np.isfinite(p2) and 0 <= p2 <= 4000:
-                    tpr_points.append((prate, p2))
-                    logger.info(f"Valid TPR point: (prate={prate}, p2={p2:.2f})")
-                else:
-                    logger.warning(f"Invalid p2 ({p2:.2f} psi) for production rate {prate} stb/day")
-            else:
-                logger.warning(f"Failed to compute p2 for production rate {prate} stb/day")
-        except Exception as e:
-            logger.warning(f"Error computing TPR point for production rate {prate}: {str(e)}")
-            continue
-
-    if not tpr_points:
-        logger.error("No valid TPR points computed. Check data_ref or input parameters.")
-        raise ValueError("No valid TPR points computed. Check data_ref or input parameters.")
+    logger.info(f"Calculating TPR points: conduit_size={conduit_size}, production_rate={production_rate}, "
+                f"glr={glr}, pwh={pwh}, D={D}")
     
-    logger.info(f"Generated {len(tpr_points)} TPR points: {tpr_points}")
-    return tpr_points
+    try:
+        q0_values = np.linspace(0, 1000, 50)
+        tpr_points = []
+        for q0 in q0_values:
+            y1, y2, p2, coeffs, status, glr1, glr2 = calculate_results(conduit_size, q0, glr, pwh, D, data_ref)
+            if p2 is not None and np.isfinite(p2) and 0 <= p2 <= 4000:
+                tpr_points.append((q0, p2))
+        if not tpr_points:
+            logger.error("No valid TPR points calculated")
+            return None
+        logger.info(f"Generated {len(tpr_points)} TPR points")
+        return tpr_points
+    except Exception as e:
+        logger.error(f"TPR calculation failed: {str(e)}")
+        return None
 
-@st.cache_data
-def calculate_ipr_fetkovich(pr, c=None, n=None, q01=None, pwf1=None, q02=None, pwf2=None, q03=None, pwf3=None, q04=None, pwf4=None):
+def calculate_ipr_fetkovich(pr, c, n):
     """
-    Calculate IPR parameters and points using Fetkovich method.
-    If c and n are provided, use them directly; otherwise, calculate from points.
-    Returns (c, n, ipr_points, fetkovich_points).
+    Calculate IPR points using Fetkovich model: q0 = c * (pr^2 - pwf^2)^n
+    Returns list of (q0, pwf) tuples or None if invalid.
     """
-    logger.info(f"calculate_ipr_fetkovich inputs: pr={pr}, c={c}, n={n}, points=[{q01, pwf1}, {q02, pwf2}, {q03, pwf3}, {q04, pwf4}]")
-    if not np.isfinite(pr) or pr <= 0 or pr > 10000:
-        logger.error(f"Invalid reservoir pressure: pr={pr}")
-        raise ValueError(f"Invalid reservoir pressure: {pr}")
-
-    points = []
-    for q, pwf in [(q01, pwf1), (q02, pwf2), (q03, pwf3), (q04, pwf4)]:
-        if (q is not None and pwf is not None and 
-            np.isfinite(q) and np.isfinite(pwf) and 
-            q > 0 and 0 <= pwf <= pr):
-            points.append((q, pwf))
-        else:
-            logger.warning(f"Skipping invalid Fetkovich point: q={q}, pwf={pwf}")
-
-    if c is not None and n is not None:
-        if c <= 0 or not np.isfinite(c) or n <= 0 or n > 2.0 or not np.isfinite(n):
+    logger.info(f"Calculating Fetkovich IPR: pr={pr}, c={c}, n={n}")
+    
+    try:
+        if not validate_fetkovich_parameters(c, n):
             logger.error(f"Invalid Fetkovich parameters: c={c}, n={n}")
-            raise ValueError(f"Invalid Fetkovich parameters: c={c}, n={n}")
-    else:
-        if len(points) < 2:
-            logger.error(f"Insufficient valid points for Fetkovich calculation: {len(points)} points provided")
-            raise ValueError("At least two valid points required for Fetkovich parameters")
+            return None
         
-        if len(points) == 2:
-            q01, pwf1 = points[0]
-            q02, pwf2 = points[1]
-            if pwf1 == pwf2 or q01 == q02:
-                logger.error("Invalid Fetkovich inputs: Pwf1, Pwf2, Q01, Q02 must be distinct")
-                raise ValueError("Invalid Fetkovich input parameters")
-            delta_p1 = pr**2 - pwf1**2
-            delta_p2 = pr**2 - pwf2**2
-            if delta_p1 <= 0 or delta_p2 <= 0 or delta_p1 == delta_p2:
-                logger.error("Invalid delta pressures for Fetkovich calculation")
-                raise ValueError("Invalid delta pressures")
-            n = np.log10(q02 / q01) / np.log10(delta_p2 / delta_p1)
-            c = q01 / (delta_p1 ** n)
-        else:
-            q_points_list, pwf_points_list = zip(*points)
-            q_points_array = np.array(q_points_list, dtype=float)
-            pwf_points_array = np.array(pwf_points_list, dtype=float)
-            def fetkovich_model(pwf, c, n):
-                return c * (pr**2 - pwf**2)**n
-            try:
-                popt, _ = curve_fit(fetkovich_model, pwf_points_array, q_points_array, p0=[1e-5, 0.5], maxfev=10000)
-                c, n = popt
-            except Exception as e:
-                logger.error(f"Curve fit failed for Fetkovich: {str(e)}")
-                raise ValueError("Curve fit failed")
+        pwf_values = np.linspace(0, pr, 50)
+        ipr_points = []
+        for pwf in pwf_values:
+            delta_p2 = pr**2 - pwf**2
+            if delta_p2 < 0:
+                continue
+            q0 = c * delta_p2 ** n
+            if np.isfinite(q0) and q0 >= 0:
+                ipr_points.append((q0, pwf))
+        if not ipr_points:
+            logger.error("No valid IPR points calculated for Fetkovich model")
+            return None
+        logger.info(f"Generated {len(ipr_points)} Fetkovich IPR points")
+        return ipr_points
+    except Exception as e:
+        logger.error(f"Fetkovich IPR calculation failed: {str(e)}")
+        return None
 
-        if c <= 0 or not np.isfinite(c) or n <= 0 or n > 2.0 or not np.isfinite(n):
-            logger.error(f"Invalid Fetkovich parameters: c={c}, n={n}")
-            raise ValueError(f"Invalid Fetkovich parameters: c={c}, n={n}")
-
-    q_max = c * (pr**2) ** n  # Estimate maximum flow rate
-    if not np.isfinite(q_max) or q_max <= 0:
-        logger.error(f"Invalid q_max: {q_max}")
-        raise ValueError(f"Invalid q_max: {q_max}")
-
-    pwf_values = np.linspace(0, pr, 50)
-    ipr_points = []
-    for pwf in pwf_values:
-        q0 = c * (pr**2 - pwf**2)**n
-        if np.isfinite(q0) and 0 <= q0 <= q_max * 1.1:
-            ipr_points.append((q0, pwf))
-        else:
-            logger.debug(f"Excluded invalid IPR point: q0={q0:.2f}, pwf={pwf:.2f}")
-    
-    if len(ipr_points) < 2:
-        logger.error("Insufficient valid IPR points for Fetkovich")
-        raise ValueError("Insufficient valid IPR points")
-
-    logger.info(f"Fetkovich parameters: c={c:.4e}, n={n:.4f}, points={len(ipr_points)}, input_points={len(points)}")
-    return c, n, ipr_points, points
-
-@st.cache_data
-def calculate_ipr_vogel(pr, q_max):
+def fit_fetkovich_parameters(pr, points):
     """
-    Calculate IPR points using Vogel method.
-    Returns (q_max, ipr_points).
+    Fit Fetkovich parameters c and n from test points using curve_fit.
+    
+    Parameters:
+    - pr: Reservoir pressure (psi)
+    - points: List of (q0, pwf) tuples
+    
+    Returns:
+    - (c, n) if fit succeeds, else (None, None)
     """
-    logger.info(f"calculate_ipr_vogel inputs: pr={pr}, q_max={q_max}")
-    if not np.isfinite(pr) or pr <= 0 or pr > 10000:
-        logger.error(f"Invalid reservoir pressure: pr={pr}")
-        raise ValueError(f"Invalid reservoir pressure: {pr}")
-    if not np.isfinite(q_max) or q_max <= 0:
-        logger.error(f"Invalid q_max: {q_max}")
-        raise ValueError(f"Invalid q_max: {q_max}")
-
-    pwf_values = np.linspace(0, pr, 50)
-    ipr_points = []
-    for pwf in pwf_values:
-        q0 = q_max * (1 - 0.2 * (pwf / pr) - 0.8 * (pwf / pr)**2)
-        if np.isfinite(q0) and 0 <= q0 <= q_max * 1.1:
-            ipr_points.append((q0, pwf))
-        else:
-            logger.debug(f"Excluded invalid IPR point: q0={q0:.2f}, pwf={pwf:.2f}")
+    def fetkovich_model(delta_p2, c, n):
+        return c * delta_p2 ** n
     
-    if len(ipr_points) < 2:
-        logger.error("Insufficient valid IPR points for Vogel")
-        raise ValueError("Insufficient valid IPR points")
+    delta_p2 = []
+    q_data = []
+    for q, pwf in points:
+        delta = pr**2 - pwf**2
+        if delta > 0:
+            delta_p2.append(delta)
+            q_data.append(q)
     
-    logger.info(f"Vogel parameters: q_max={q_max:.4f}, points={len(ipr_points)}")
-    return q_max, ipr_points
+    if len(delta_p2) < 2:
+        logger.warning("Insufficient valid delta_p2 points for Fetkovich fit")
+        return None, None
+    
+    delta_p2 = np.array(delta_p2)
+    q_data = np.array(q_data)
+    
+    try:
+        # Suppress warnings for optimization issues
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", OptimizeWarning)
+            popt, _ = curve_fit(
+                fetkovich_model, 
+                delta_p2, 
+                q_data, 
+                p0=[0.001, 0.5],  # Initial guesses
+                bounds=(0, [np.inf, 2]),  # Bounds: c > 0, 0 < n <= 2
+                maxfev=10000  # Increase iterations for convergence
+            )
+        c, n = popt
+        if not validate_fetkovich_parameters(c, n):
+            return None, None
+        logger.info(f"Fitted Fetkovich parameters: c={c:.6f}, n={n:.2f}")
+        return c, n
+    except Exception as e:
+        logger.error(f"Fetkovich fit failed: {str(e)}")
+        return None, None
 
-@st.cache_data
-def calculate_ipr_composite(pr, j_star, p_b):
+def calculate_ipr_vogel(pr, qmax):
     """
-    Calculate IPR points using Composite method.
-    Returns (j_star, p_b, ipr_points).
+    Calculate IPR points using Vogel's model: q0 = qmax * (1 - 0.2*(pwf/pr) - 0.8*(pwf/pr)^2)
+    Returns list of (q0, pwf) tuples or None if invalid.
     """
-    logger.info(f"calculate_ipr_composite inputs: pr={pr}, j_star={j_star}, p_b={p_b}")
-    if not np.isfinite(pr) or pr <= 0 or pr > 10000:
-        logger.error(f"Invalid reservoir pressure: pr={pr}")
-        raise ValueError(f"Invalid reservoir pressure: {pr}")
-    if not np.isfinite(j_star) or j_star <= 0:
-        logger.error(f"Invalid j_star: {j_star}")
-        raise ValueError(f"Invalid j_star: {j_star}")
-    if not np.isfinite(p_b) or p_b <= 0 or p_b > pr:
-        logger.error(f"Invalid bubble point pressure: p_b={p_b}")
-        raise ValueError(f"Invalid bubble point pressure: {p_b}")
-
-    pwf_values = np.linspace(0, pr, 50)
-    ipr_points = []
-    for pwf in pwf_values:
-        if pwf > p_b:
-            q0 = j_star * (pr - pwf)
-        else:
-            q0 = j_star * (pr - p_b) + (j_star * p_b / 1.8) * (1 - 0.2 * (pwf / p_b) - 0.8 * (pwf / p_b)**2)
-        if np.isfinite(q0) and 0 <= q0 <= 1000:
-            ipr_points.append((q0, pwf))
-        else:
-            logger.debug(f"Excluded invalid IPR point: q0={q0:.2f}, pwf={pwf:.2f}")
+    logger.info(f"Calculating Vogel IPR: pr={pr}, qmax={qmax}")
     
-    if len(ipr_points) < 2:
-        logger.error("Insufficient valid IPR points for Composite")
-        raise ValueError("Insufficient valid IPR points")
-    
-    logger.info(f"Composite parameters: j_star={j_star:.4f}, p_b={p_b:.4f}, points={len(ipr_points)}")
-    return j_star, p_b, ipr_points
+    try:
+        if qmax <= 0 or not np.isfinite(qmax):
+            logger.error(f"Invalid qmax: {qmax}")
+            return None
+        
+        pwf_values = np.linspace(0, pr, 50)
+        ipr_points = []
+        for pwf in pwf_values:
+            pwf_pr = pwf / pr
+            q0 = qmax * (1 - 0.2 * pwf_pr - 0.8 * pwf_pr**2)
+            if np.isfinite(q0) and q0 >= 0:
+                ipr_points.append((q0, pwf))
+        if not ipr_points:
+            logger.error("No valid IPR points calculated for Vogel model")
+            return None
+        logger.info(f"Generated {len(ipr_points)} Vogel IPR points")
+        return ipr_points
+    except Exception as e:
+        logger.error(f"Vogel IPR calculation failed: {str(e)}")
+        return None
 
-@st.cache_data
+def calculate_ipr_composite(pr, qmax, n):
+    """
+    Calculate IPR points using composite model (Vogel below pr/2, Fetkovich above pr/2).
+    Returns list of (q0, pwf) tuples or None if invalid.
+    """
+    logger.info(f"Calculating Composite IPR: pr={pr}, qmax={qmax}, n={n}")
+    
+    try:
+        if qmax <= 0 or not np.isfinite(qmax) or n <= 0 or n > 2 or not np.isfinite(n):
+            logger.error(f"Invalid parameters: qmax={qmax}, n={n}")
+            return None
+        
+        pwf_values = np.linspace(0, pr, 50)
+        ipr_points = []
+        for pwf in pwf_values:
+            if pwf <= pr / 2:
+                # Vogel model
+                pwf_pr = pwf / pr
+                q0 = qmax * (1 - 0.2 * pwf_pr - 0.8 * pwf_pr**2)
+            else:
+                # Fetkovich model
+                delta_p2 = pr**2 - pwf**2
+                q0 = qmax * (delta_p2 / (pr**2)) ** n
+            if np.isfinite(q0) and q0 >= 0:
+                ipr_points.append((q0, pwf))
+        if not ipr_points:
+            logger.error("No valid IPR points calculated for Composite model")
+            return None
+        logger.info(f"Generated {len(ipr_points)} Composite IPR points")
+        return ipr_points
+    except Exception as e:
+        logger.error(f"Composite IPR calculation failed: {str(e)}")
+        return None
+
 def find_intersection(tpr_points, ipr_points, pr):
     """
     Find intersection between TPR and IPR curves using interpolation.
