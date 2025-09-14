@@ -82,27 +82,44 @@ def generate_df(coeffs, num_points, min_D):
     Generate DataFrame of random points for a given set of coefficients.
     Returns df or None if generation fails.
     """
-    df = pd.DataFrame(columns=['p1', 'D', 'y1', 'y2', 'p2'])
+    df = pd.DataFrame(columns=['conduit_size', 'production_rate', 'glr', 'p1', 'D', 'y1', 'y2', 'p2'])
     unique_D = set()
     x_range = (0, 4000)
     y_range = (0, 31000)
-    while len(df) < num_points:
+    attempts = 0
+    max_attempts = num_points * 10  # Prevent infinite loops
+    while len(df) < num_points and attempts < max_attempts:
         p1 = np.random.uniform(x_range[0], x_range[1])
         y1 = calc_y1(p1, coeffs)
         if y1 is None or y1 < y_range[0] or y1 > y_range[1] or not np.isfinite(y1):
+            attempts += 1
             continue
         max_D = y_range[1] - y1
         D = np.random.uniform(max(min_D, 0), max_D)
         rounded_D = round(D, 8)
         if rounded_D in unique_D:
+            attempts += 1
             continue
         unique_D.add(rounded_D)
         y2 = y1 + D
         p2 = solve_p2(y2, p1, coeffs)
         if p2 is None or p2 < x_range[0] or p2 > x_range[1] or not np.isfinite(p2):
+            attempts += 1
             continue
-        df = pd.concat([df, pd.DataFrame({'p1': [p1], 'D': [D], 'y1': [y1], 'y2': [y2], 'p2': [p2]})], ignore_index=True)
-    return df
+        df = pd.concat([df, pd.DataFrame({
+            'conduit_size': [np.nan],  # Placeholder, filled later
+            'production_rate': [np.nan],
+            'glr': [np.nan],
+            'p1': [p1],
+            'D': [D],
+            'y1': [y1],
+            'y2': [y2],
+            'p2': [p2]
+        })], ignore_index=True)
+        attempts += 1
+    if len(df) < num_points:
+        logger.warning(f"Generated only {len(df)} of {num_points} points due to constraints.")
+    return df if not df.empty else None
 
 def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
     """
@@ -113,13 +130,18 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
     production_rate = entry['production_rate']
     glr = entry['glr']
     coeffs_dict = entry['coefficients']
-    coeffs = [coeffs_dict[k] for k in sorted(coeffs_dict.keys())]  # Ensure correct order: a, b, c, d, e, f
+    coeffs = [coeffs_dict[k] for k in sorted(coeffs_dict.keys())]  # Ensure order: a, b, c, d, e, f
 
     # Generate data
     df = generate_df(coeffs, num_points, min_D)
     if df is None or df.empty:
         logger.error(f"No valid points generated for conduit_size={conduit_size}, production_rate={production_rate}, glr={glr}")
         return None, None
+
+    # Fill metadata
+    df['conduit_size'] = conduit_size
+    df['production_rate'] = production_rate
+    df['glr'] = glr
 
     # Excel file
     excel_buffer = io.BytesIO()
@@ -135,22 +157,27 @@ def generate_excel(entry, num_points, min_D, generate_graphs, num_graph_sheets):
             else:
                 df_graph = df
             for sheet_num in range(1, min(num_graph_sheets + 1, len(df_graph) + 1)):
-                row = df_graph.iloc[sheet_num - 1]
+                idx = sheet_num - 1
+                # Write subset to a hidden sheet for chart data
+                sheet_name = f'Data_{sheet_num}'
+                df_graph.iloc[[idx]].to_excel(writer, sheet_name=sheet_name, index=False)
+                worksheet = writer.sheets[sheet_name]
+                worksheet.hide()
                 chart_sheet = workbook.add_chartsheet(f'Graph {sheet_num}')
                 chart = workbook.add_chart({'type': 'scatter', 'subtype': 'straight_with_markers'})
                 # Plot line from (p1, y1) to (p2, y2)
                 chart.add_series({
                     'name': f'Well Path {sheet_num}',
-                    'categories': [row['p1'], row['p2']],  # x: pressure
-                    'values': [row['y1'], row['y2']],      # y: depth
+                    'categories': [sheet_name, 1, 3, 1, 7],  # p1 (col 3), p2 (col 7)
+                    'values': [sheet_name, 1, 5, 1, 6],      # y1 (col 5), y2 (col 6)
                     'line': {'color': 'red'},
                     'marker': {'type': 'circle', 'size': 5, 'fill': {'color': 'red'}}
                 })
                 # Plot vertical well length line from (p1, y1) to (p1, y2)
                 chart.add_series({
                     'name': f'Well Length {sheet_num}',
-                    'categories': [row['p1'], row['p1']],
-                    'values': [row['y1'], row['y2']],
+                    'categories': [sheet_name, 1, 3, 1, 3],  # p1 (col 3)
+                    'values': [sheet_name, 1, 5, 1, 6],      # y1 (col 5), y2 (col 6)
                     'line': {'color': 'blue', 'dash_type': 'dash'},
                     'marker': {'type': 'none'}
                 })
@@ -277,6 +304,9 @@ def run_random_point_generator():
         filtered_data = [entry for entry in reference_data 
                          if entry['conduit_size'] == conduit_size and entry['production_rate'] == production_rate]
         valid_glrs = sorted(set([entry['glr'] for entry in filtered_data]))
+        if not valid_glrs:
+            st.error("No valid GLR values found for the selected conduit size and production rate.")
+            return
         glr = st.selectbox(
             "GLR (scf/stb):",
             valid_glrs,
@@ -342,6 +372,10 @@ def run_random_point_generator():
                         st.error(f"No valid points generated for GLR {glr}.")
                         logger.error(f"No valid points generated for GLR {glr}.")
                         return
+                    # Fill metadata for display
+                    df['conduit_size'] = conduit_size
+                    df['production_rate'] = production_rate
+                    df['glr'] = glr
                     # Display data for single GLR
                     st.subheader("Generated Data")
                     st.dataframe(df)
