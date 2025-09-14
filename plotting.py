@@ -159,24 +159,10 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
         ax.scatter([p2], [y2 + D], color=curve_color, s=50, label=f'(p2, y2 + D) = ({p2:.2f} psi, {(y2 + D):.2f} ft)')
         
         # Plot pressure profile (green line from wellhead to bottomhole)
-        depths = np.linspace(0, y2 + D, 100)
-        pressures = []
-        for depth in depths:
-            pressure = find_pressure(depth, coeffs)
-            if pressure is not None and np.isfinite(pressure):
-                pressures.append(pressure)
-            else:
-                pressures.append(np.nan)  # Handle invalid pressures
-        
-        valid_points = [(p, d) for p, d in zip(pressures, depths) if np.isfinite(p)]
-        if len(valid_points) < 2:
-            logger.error(f"Insufficient valid points for pressure profile: {len(valid_points)} points")
-            plt.close(fig)
-            return None
-        
-        valid_pressures, valid_depths = zip(*valid_points)
-        ax.plot(valid_pressures, valid_depths, color='green' if mode == 'color' else 'black', linewidth=4,
-                label=f'Pressure Profile (Well Length = {D:.2f} ft)')
+        # Plot well length (green vertical line)
+        ax.plot([0, 0], [y1, y2], color='green' if mode == 'color' else 'black',
+        linewidth=4, label=f'Well Length (D = {D:.2f} ft)')
+
         
         # Plot reference lines
         ax.plot([p1, p1], [y1, 0], color='red', linewidth=1, label='Connecting Line')
