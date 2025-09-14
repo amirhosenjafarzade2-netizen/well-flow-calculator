@@ -308,12 +308,23 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
             )
             st.session_state.natural_flow_inputs['n'] = n
         else:
-            num_points = st.selectbox(
-                "Number of Points:",
-                [2, 3, 4],
-                index=[2, 3, 4].index(st.session_state.natural_flow_inputs['num_points'])
-            )
-            st.session_state.natural_flow_inputs['num_points'] = num_points
+            try:
+                num_points = st.selectbox(
+                    "Number of Points:",
+                    [2, 3, 4],
+                    index=[2, 3, 4].index(st.session_state.natural_flow_inputs.get('num_points', 2)),
+                    key="fetkovich_num_points"
+                )
+                st.session_state.natural_flow_inputs['num_points'] = num_points
+            except ValueError:
+                st.error("Error loading number of points. Defaulting to 2 points.")
+                logger.error("ValueError in num_points selectbox; defaulting to 2")
+                num_points = 2
+                st.session_state.natural_flow_inputs['num_points'] = num_points
+            
+            # Initialize points if not enough exist in session state
+            if len(st.session_state.natural_flow_inputs['points']) < num_points:
+                st.session_state.natural_flow_inputs['points'] = [(100.0 * (i+1), max(0.0, pr - 500.0 * (i+1))) for i in range(num_points)] + [(0.0, 0.0)] * (4 - num_points)
             
             points = []
             col3, col4 = st.columns(2)
@@ -322,7 +333,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                     q0 = st.number_input(
                         f"Q0{i+1} (stb/day):",
                         min_value=0.0,
-                        value=st.session_state.natural_flow_inputs['points'][i][0],
+                        value=float(st.session_state.natural_flow_inputs['points'][i][0]),
                         step=10.0,
                         key=f"q0{i+1}"
                     )
@@ -330,7 +341,7 @@ def run_natural_flow_finder(reference_data, interpolation_ranges, production_rat
                         f"Pwf{i+1} (psi):",
                         min_value=0.0,
                         max_value=float(pr),
-                        value=st.session_state.natural_flow_inputs['points'][i][1],
+                        value=float(st.session_state.natural_flow_inputs['points'][i][1]),
                         step=10.0,
                         key=f"pwf{i+1}"
                     )
