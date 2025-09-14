@@ -646,9 +646,6 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
         )
         st.session_state.glr_graph_inputs['production_rate'] = production_rate
     
-    graph_style = st.selectbox("Graph Style:", ["Colorful", "Black-and-White"])
-    mode = 'color' if graph_style == "Colorful" else 'bw'
-    
     plot_glr = st.button("Plot GLR Curves")
     
     if plot_glr:
@@ -666,7 +663,7 @@ def run_glr_graph_drawer(reference_data, interpolation_ranges, production_rates)
             else:
                 try:
                     # Placeholder: Assume plot_glr_graphs returns (fig, glr_data)
-                    fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode=mode)
+                    fig = plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
                     glr_data = [...]  # Replace with actual glr_data from plot_glr_graphs
                     if fig is not None:
                         st.subheader("GLR Pressure vs Depth Curves")
@@ -700,14 +697,14 @@ def main():
     st.title("Well Performance Calculator")
     apply_theme()
     
-    # Initialize reference data and interpolation ranges consistently
-    reference_data = st.session_state.get('REFERENCE_DATA', [])
-    interpolation_ranges = {}  # Define as empty dict to match three-mode UI
-    production_rates = [50, 100, 200, 300, 400, 500, 600]  # Define explicitly to match three-mode UI
+    # Placeholder for reference data and interpolation ranges
+    reference_data = [...]  # Assume reference data is loaded
+    interpolation_ranges = {...}  # Assume interpolation ranges are loaded
+    production_rates = [50, 100, 200, 300, 400, 500, 600]
     
     # Debug button for REFERENCE_DATA
     if st.button("Debug REFERENCE_DATA"):
-        st.write(reference_data if reference_data else "REFERENCE_DATA is empty")
+        st.write(st.session_state.get('REFERENCE_DATA', "REFERENCE_DATA not found in session_state"))
     
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["p2 Finder", "Natural Flow Finder", "GLR Curves", "Random Point Generator", "Machine Learning"])
     
