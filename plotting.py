@@ -87,8 +87,19 @@ def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mod
 def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, production_rate, mode='color'):
     """
     Plot the pressure vs. depth curve for p2 Finder or Natural Flow Finder.
+    
+    Parameters:
+    - p1, y1, p2, y2: Pressure and depth points
+    - D: Well length in feet
+    - coeffs: Polynomial coefficients for pressure-depth relationship
+    - glr_input: Gas-Liquid Ratio
+    - interpolation_status: 'exact' or 'interpolated'
+    - production_rate: Production rate in stb/day
+    - mode: 'color' or 'bw' for colorful or black-and-white plots
+    
+    Returns:
+    - Matplotlib figure object or None if plotting fails
     """
-
     logger.info(f"Plotting pressure vs. depth: p1={p1:.2f}, y1={y1:.2f}, p2={p2:.2f}, y2={y2:.2f}, D={D:.2f}, Q0={production_rate}, GLR={glr_input}")
     
     try:
@@ -97,27 +108,62 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
         fig.patch.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
         ax.set_facecolor('#F5F5F5' if mode == 'color' else 'white')
         
-        # Generate GLR curve
-        p1_full = np.linspace(0, 4000, 200)
-        y1_full = [polynomial(p, coeffs) if np.isfinite(polynomial(p, coeffs)) and polynomial(p, coeffs) <= 31000 else 31000 for p in p1_full]
-
+        # Generate pressure points for GLR curve
+        p1_full = np.linspace(0, 4000, 100)
+        y1_full = []
+        crossing_x = None
+        max_iterations = 100
+        iteration = 0
+        
+        # Compute depths for pressure points
+        for p in p1_full:
+            if iteration >= max_iterations:
+                logger.warning("Reached maximum iterations in depth calculation")
+                break
+            y = polynomial(p, coeffs)
+            if np.isfinite(y) and y <= 31000:
+                y1_full.append(y)
+            else:
+                if crossing_x is None and len(y1_full) > 0:
+                    def root_fn(x):
+                        return polynomial(x, coeffs) - 31000
+                    try:
+                        mid_guess = p1_full[max(0, len(y1_full) - 1)]
+                        candidate = np.linspace(mid_guess, p, 10)[5]
+                        if 0 <= candidate <= 4000:
+                            crossing_x = candidate
+                            y1_full.append(31000)
+                            break
+                    except Exception as e:
+                        logger.debug(f"Root finding failed: {str(e)}")
+                        crossing_x = p1_full[len(y1_full) - 1]
+                        y1_full.append(31000)
+                        break
+                else:
+                    y1_full.append(31000)
+            iteration += 1
+        
+        # Validate computed points
+        if len(y1_full) < 2:
+            logger.error("Insufficient valid points for pressure vs. depth plot")
+            plt.close(fig)
+            return None
+        
         # Plot GLR curve
         curve_color = 'blue' if mode == 'color' else 'black'
-        ax.plot(p1_full, y1_full, color=curve_color, linewidth=2.5,
+        ax.plot(p1_full[:len(y1_full)], y1_full, color=curve_color, linewidth=2.5,
                 label=f'GLR curve ({interpolation_status.capitalize()}, Q0={production_rate} stb/day, GLR={glr_input})')
         
-        # Plot key points
-        ax.scatter([p1], [y1], color=curve_color, s=50,
-                   label=f'(p1, y1) = ({p1:.2f} psi, {y1:.2f} ft)')
-        ax.scatter([p2], [y2], color=curve_color, s=50,
-                   label=f'(p2, y2) = ({p2:.2f} psi, {y2:.2f} ft)')
+        # Plot data points
+        ax.scatter([p1], [y1], color=curve_color, s=50, label=f'(p1, y1) = ({p1:.2f} psi, {y1:.2f} ft)')
+        ax.scatter([p2], [y2], color=curve_color, s=50, label=f'(p2, y2) = ({p2:.2f} psi, {y2:.2f} ft)')
         
-        # ✅ Plot well length (green vertical line)
-        ax.plot([0, 0], [y1, y2], color='green' if mode == 'color' else 'black',
-                linewidth=4, label=f'Well Length (D = {D:.2f} ft)')
+        # Plot well length (green vertical line from y1 to y2)
+        ax.plot([0, 0], [y1, y2], color='green' if mode == 'color' else 'black', linewidth=4,
+                label=f'Well Length ({D:.2f} ft)')
         
-        # Reference red lines
-        ax.plot([p1, p1], [y1, 0], color='red', linewidth=1)
+        # Plot reference lines
+        ax.plot([p1, p1], [y1, 0], color='red', linewidth=1, label='Connecting Line')
         ax.plot([p1, 0], [y1, y1], color='red', linewidth=1)
         ax.plot([p2, p2], [y2, 0], color='red', linewidth=1)
         ax.plot([p2, 0], [y2, y2], color='red', linewidth=1)
@@ -127,18 +173,23 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
             ax,
             x_label='Gradient Pressure, psi',
             y_label='Depth, ft',
-            x_lim=(0, 4000),
-            y_lim=(0, 31000),
+            x_lim=(0, max(max(p1_full[:len(y1_full)]), p1, p2, 4000) * 1.1),
+            y_lim=(0, max(max(y1_full), y2, 31000) * 1.1),
             title=None,
             mode=mode,
             is_log_log=False
         )
         ax.invert_yaxis()
         
-        # Legend
-        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.3),
-                  fontsize=8, frameon=True, edgecolor='black', ncol=1)
+        # Add legend
+        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.3), fontsize=8, frameon=True, edgecolor='black', ncol=1)
         plt.tight_layout()
+        
+        # Check for empty plot
+        if len(ax.lines) == 0:
+            logger.error("Empty plot in plot_results - closing and returning None")
+            plt.close(fig)
+            return None
         
         logger.info("Pressure vs. depth plot generated successfully")
         return fig
