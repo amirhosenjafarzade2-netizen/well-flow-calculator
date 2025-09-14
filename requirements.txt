@@ -5,3 +5,6 @@ numpy
 scipy
 requests
 openpyxl
+xlsxwriter
+tensorflow
+deap
