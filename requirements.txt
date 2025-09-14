@@ -8,3 +8,4 @@ openpyxl
 xlsxwriter
 tensorflow
 deap
+scikit-learn
