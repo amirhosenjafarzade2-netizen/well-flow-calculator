@@ -268,6 +268,11 @@ def plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit
             mode=mode,
             is_log_log=False
         )
+
+        # <<< ADD THESE TWO LINES (exactly) BELOW TO FORCE THE X-AXIS TO THE BOTTOM >>>
+        ax.xaxis.set_label_position('bottom')   # <-- ADD THIS LINE
+        ax.xaxis.set_ticks_position('bottom')   # <-- ADD THIS LINE
+        # <<< end add >>>
         ax.xaxis.set_major_locator(plt.MultipleLocator(100))
         ax.xaxis.set_minor_locator(plt.MultipleLocator(20))
         
