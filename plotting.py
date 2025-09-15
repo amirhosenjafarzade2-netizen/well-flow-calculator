@@ -41,7 +41,7 @@ def validate_plotting_inputs(data, param_name, min_len=2, non_negative=True, fin
     logger.debug(f"Validated {len(validated_data)} points for {param_name}")
     return validated_data
 
-def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mode='color', is_log_log=False):
+def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mode='color', is_log_log=False, xaxis_position='top'):
     """
     Configure matplotlib axes with consistent styling.
     
@@ -79,9 +79,14 @@ def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mod
         ax.yaxis.set_major_locator(plt.MultipleLocator(1000))
         ax.yaxis.set_minor_locator(plt.MultipleLocator(200))
     
-    ax.xaxis.set_label_position('top')
-    ax.xaxis.set_ticks_position('top')
-    ax.margins(x=0.05, y=0.05)
+        # Set x-axis position according to caller request ('top' or 'bottom')
+    if xaxis_position == 'bottom':
+        ax.xaxis.set_label_position('bottom')
+        ax.xaxis.set_ticks_position('bottom')
+    else:
+        ax.xaxis.set_label_position('top')
+        ax.xaxis.set_ticks_position('top')
+        ax.margins(x=0.05, y=0.05)
 
 def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, production_rate, mode='color'):
     """
@@ -266,7 +271,8 @@ def plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit
             y_lim=(0, max(max(tpr_p2), max(ipr_pwf), pr, 4000) * 1.1),
             title='TPR and IPR Curves with Natural Flow Point',
             mode=mode,
-            is_log_log=False
+            is_log_log=False,
+            xaxis_position='bottom'
         )
 
         # <<< ADD THESE TWO LINES (exactly) BELOW TO FORCE THE X-AXIS TO THE BOTTOM >>>
