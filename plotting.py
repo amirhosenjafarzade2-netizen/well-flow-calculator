@@ -41,7 +41,7 @@ def validate_plotting_inputs(data, param_name, min_len=2, non_negative=True, fin
     logger.debug(f"Validated {len(validated_data)} points for {param_name}")
     return validated_data
 
-def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mode='color', is_log_log=False, x_axis_position='top'):
+def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mode='color', is_log_log=False):
     """
     Configure matplotlib axes with consistent styling.
     
@@ -52,7 +52,6 @@ def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mod
     - title: Plot title
     - mode: 'color' or 'bw' for styling
     - is_log_log: If True, use tick locators suitable for log-log plots
-    - x_axis_position: 'top' or 'bottom' for x-axis label and ticks
     """
     ax.set_xlabel(x_label, fontsize=10)
     ax.set_ylabel(y_label, fontsize=10)
@@ -80,8 +79,8 @@ def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mod
         ax.yaxis.set_major_locator(plt.MultipleLocator(1000))
         ax.yaxis.set_minor_locator(plt.MultipleLocator(200))
     
-    ax.xaxis.set_label_position(x_axis_position)
-    ax.xaxis.set_ticks_position(x_axis_position)
+    ax.xaxis.set_label_position('top')
+    ax.xaxis.set_ticks_position('top')
     ax.margins(x=0.05, y=0.05)
 
 def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, production_rate, mode='color'):
@@ -258,7 +257,7 @@ def plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit
             ax.scatter([intersection_q0], [intersection_p], color=intersect_color, s=100, marker='*',
                        label=f'Natural Flow Point (Q0: {intersection_q0:.2f} stb/day, P: {intersection_p:.2f} psi)')
         
-        # Configure axes with x-axis at bottom
+        # Configure axes
         configure_axes(
             ax,
             x_label='Production Rate, Q0 (stb/day)',
@@ -267,8 +266,7 @@ def plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit
             y_lim=(0, max(max(tpr_p2), max(ipr_pwf), pr, 4000) * 1.1),
             title='TPR and IPR Curves with Natural Flow Point',
             mode=mode,
-            is_log_log=False,
-            x_axis_position='bottom'  # Set x-axis to bottom for IPR plots
+            is_log_log=False
         )
         ax.xaxis.set_major_locator(plt.MultipleLocator(100))
         ax.xaxis.set_minor_locator(plt.MultipleLocator(20))
