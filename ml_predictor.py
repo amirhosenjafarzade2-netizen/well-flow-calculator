@@ -6,10 +6,10 @@ import requests
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestRegressor
 
-# Hardcoded configuration (replacing config.py)
+# Hardcoded configuration
 PRODUCTION_RATES = [50, 100, 200, 400, 600]
 CONDUIT_SIZES = [2.875, 3.5]
-GITHUB_URL = "https://github.com/USER/REPO/raw/main/referenceexcel.xlsx"  # Replace with actual URL
+GITHUB_URL = "https://raw.githubusercontent.com/amirhosenjafarzade2-netizen/well-flow-calculator/main/referenceexcel.xlsx"
 VALID_GLRS = {
     2.875: {50: [200, 400, 600], 100: [200, 400], 200: [200], 400: [200], 600: [200]},
     3.5: {50: [200, 400, 600, 800], 100: [200, 400, 600], 200: [200, 400], 400: [200], 600: [200]}
@@ -72,7 +72,6 @@ def load_reference_data():
 def generate_training_data(reference_data, conduit_size, production_rate, num_points, glr=None, min_D=1000):
     """
     Generate synthetic training data for ML model.
-    Replaces random_point_generator.generate_df with simplified logic.
     """
     try:
         filtered_data = [
@@ -87,10 +86,8 @@ def generate_training_data(reference_data, conduit_size, production_rate, num_po
         dfs = []
         for entry in filtered_data:
             coeffs = entry['coefficients']
-            # Simplified data generation: linear relation with noise
             p1 = np.random.uniform(100, 4000, num_points)
             D = np.random.uniform(min_D, 31000, num_points)
-            # Use coefficients to compute p2 (simplified polynomial)
             p2 = (
                 coeffs['a'] * p1 +
                 coeffs['b'] * D +
@@ -190,7 +187,6 @@ def run_ml_predictor():
         glr = st.selectbox("GLR (scf/stb):", valid_glrs, key="ml_pred_glr")
     
     if st.button("Generate Data", key="ml_pred_generate"):
-        # Basic input validation
         if conduit_size not in CONDUIT_SIZES:
             st.error("Invalid conduit size.")
             return
