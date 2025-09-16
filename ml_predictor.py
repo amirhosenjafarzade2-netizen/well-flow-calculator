@@ -12,10 +12,14 @@ import lightgbm as lgb
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Input
-from config import PRODUCTION_RATES, GITHUB_URL
-from utils import setup_logging
-from random_point_generator import generate_df
-from validators import validate_conduit_size, validate_production_rate, get_valid_options, get_valid_glr_range, validate_glr, validate_positive_integer
+try:
+    from config import PRODUCTION_RATES, GITHUB_URL
+    from utils import setup_logging
+    from random_point_generator import generate_df
+    from validators import validate_conduit_size, validate_production_rate, get_valid_options, get_valid_glr_range, validate_glr, validate_positive_integer
+except ImportError as e:
+    st.error(f"Import error in ml_predictor: {str(e)}")
+    raise
 
 # Suppress TensorFlow warnings
 import os
@@ -84,7 +88,7 @@ def load_reference_data():
 def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=None, min_D=1000, all_prates=False, both_conduits=False):
     """
     Generate ML data using random_point_generator's generate_df function.
-    Simplified to focus on p1, D, p2 for prediction.
+    Focuses on p1, D, p2 for prediction.
     """
     dfs_ml = []
     
@@ -140,6 +144,10 @@ def load_ml_data(reference_data, conduit_size, production_rate, num_points, glr=
                     current_iteration += 1
                     continue
                 # Keep only necessary columns for prediction
+                if not all(col in df_temp.columns for col in ['p1', 'D', 'p2']):
+                    logger.error(f"Generated DataFrame missing required columns: {df_temp.columns}")
+                    current_iteration += 1
+                    continue
                 df_temp = df_temp[['p1', 'D', 'p2']].copy()
                 df_temp['conduit_size'] = entry['conduit_size']
                 df_temp['production_rate'] = entry['production_rate']
@@ -161,11 +169,15 @@ def train_model(df_ml, model_type):
     """
     Train the selected ML model.
     """
-    if df_ml.empty:
+    if df_ml.empty or df_ml is None:
         st.error("No data available for training.")
         return None, None
     features = ['p1', 'D', 'conduit_size', 'production_rate', 'GLR']
     target = 'p2'
+    if not all(col in df_ml.columns for col in features + [target]):
+        st.error(f"DataFrame missing required columns: {df_ml.columns}")
+        logger.error(f"DataFrame missing required columns: {df_ml.columns}")
+        return None, None
     X = df_ml[features]
     y = df_ml[target]
     scaler = StandardScaler()
@@ -261,8 +273,8 @@ def run_ml_predictor():
     col1, col2 = st.columns(2)
     
     with col1:
-        conduit_size = st.selectbox("Conduit Size (in):", [2.875, 3.5], key="pred_conduit")
-        both_conduits = st.checkbox("Use Both Conduit Sizes", value=False, key="pred_both_conduits")
+        conduit_size = st.selectbox("Conduit Size (in):", [2.875, 3.5], key="ml_pred_conduit")
+        both_conduits = st.checkbox("Use Both Conduit Sizes", value=False, key="ml_pred_both_conduits")
     
     with col2:
         try:
@@ -272,20 +284,22 @@ def run_ml_predictor():
             st.error(f"Error loading valid options: {str(e)}")
             logger.error(f"Error loading valid options: {str(e)}")
             return
-        production_rate = st.selectbox("Production Rate (stb/day):", valid_prates, key="pred_prod_rate")
-        all_prates = st.checkbox("Use All Production Rates", value=False, key="pred_all_prates")
+        production_rate = st.selectbox("Production Rate (stb/day):", valid_prates, key="ml_pred_prod_rate")
+        all_prates = st.checkbox("Use All Production Rates", value=False, key="ml_pred_all_prates")
     
-    num_points = st.number_input("Number of Random Points per GLR Curve:", min_value=1, value=1000, step=100, key="pred_num_points")
+    num_points = st.number_input("Number of Random Points per GLR Curve:", min_value=1, value=1000, step=100, key="ml_pred_num_points")
     
-    all_glr = st.checkbox("Use All GLRs for Selected Production Rate", value=True, key="pred_all_glr")
+    all_glr = st.checkbox("Use All GLRs for Selected Production Rate", value=True, key="ml_pred_all_glr")
     glr = None
     if not all_glr:
         valid_glrs_list = valid_glrs.get(production_rate, [])
         if valid_glrs_list:
-            glr = st.selectbox("GLR (scf/stb):", [float(g) for g in valid_glrs_list], key="pred_glr")
+            glr = st.selectbox("GLR (scf/stb):", [float(g) for g in valid_glrs_list], key="ml_pred_glr")
+        else:
+            st.error(f"No valid GLRs available for production rate {production_rate}.")
+            return
     
-    if st.button("Generate Data", key="pred_generate"):
-        # Basic validation
+    if st.button("Generate Data", key="ml_pred_generate"):
         errors = []
         if not both_conduits and not validate_conduit_size(conduit_size):
             errors.append("Invalid conduit size.")
@@ -318,8 +332,8 @@ def run_ml_predictor():
     if 'df_ml_pred' in st.session_state:
         model_type = st.selectbox("Select ML Model:", 
                                 ["Neural Network", "Random Forest", "Gradient Boosting", "Stacking Ensemble"], 
-                                key="pred_model_type")
-        if st.button("Train Model", key="pred_train"):
+                                key="ml_pred_model_type")
+        if st.button("Train Model", key="ml_pred_train"):
             model, scaler = train_model(st.session_state.df_ml_pred, model_type)
             if model is None:
                 st.error("Training failed.")
@@ -334,15 +348,15 @@ def run_ml_predictor():
         pred_col1, pred_col2 = st.columns(2)
         
         with pred_col1:
-            pred_p1 = st.number_input("Wellhead Pressure (p1, psi):", min_value=0.0, max_value=4000.0, value=1000.0, key="pred_p1")
-            pred_D = st.number_input("Well Length (D, ft):", min_value=0.0, max_value=31000.0, value=1000.0, key="pred_D")
+            pred_p1 = st.number_input("Wellhead Pressure (p1, psi):", min_value=0.0, max_value=4000.0, value=1000.0, key="ml_pred_p1")
+            pred_D = st.number_input("Well Length (D, ft):", min_value=0.0, max_value=31000.0, value=1000.0, key="ml_pred_D")
         
         with pred_col2:
-            pred_conduit = st.selectbox("Conduit Size (in):", [2.875, 3.5], key="pred_conduit_pred")
-            pred_prod = st.selectbox("Production Rate (stb/day):", PRODUCTION_RATES, key="pred_prod_pred")
-            pred_glr = st.number_input("GLR (scf/stb):", min_value=0.0, max_value=25000.0, value=200.0, key="pred_glr_pred")
+            pred_conduit = st.selectbox("Conduit Size (in):", [2.875, 3.5], key="ml_pred_conduit_pred")
+            pred_prod = st.selectbox("Production Rate (stb/day):", PRODUCTION_RATES, key="ml_pred_prod_pred")
+            pred_glr = st.number_input("GLR (scf/stb):", min_value=0.0, max_value=25000.0, value=200.0, key="ml_pred_glr_pred")
         
-        if st.button("Predict p2", key="pred_predict"):
+        if st.button("Predict p2", key="ml_pred_predict"):
             errors = []
             if not validate_conduit_size(pred_conduit):
                 errors.append("Invalid conduit size for prediction.")
