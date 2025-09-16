@@ -9,4 +9,3 @@ xlsxwriter
 tensorflow
 scikit-learn
 deap
-lightgbm
