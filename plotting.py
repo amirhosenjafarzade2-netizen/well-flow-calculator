@@ -41,7 +41,7 @@ def validate_plotting_inputs(data, param_name, min_len=2, non_negative=True, fin
     logger.debug(f"Validated {len(validated_data)} points for {param_name}")
     return validated_data
 
-def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mode='color', is_log_log=False):
+def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mode='color', is_log_log=False, x_axis_position='top'):
     """
     Configure matplotlib axes with consistent styling.
     
@@ -52,6 +52,7 @@ def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mod
     - title: Plot title
     - mode: 'color' or 'bw' for styling
     - is_log_log: If True, use tick locators suitable for log-log plots
+    - x_axis_position: 'top' or 'bottom' for x-axis placement
     """
     ax.set_xlabel(x_label, fontsize=10)
     ax.set_ylabel(y_label, fontsize=10)
@@ -79,8 +80,8 @@ def configure_axes(ax, x_label, y_label, x_lim=None, y_lim=None, title=None, mod
         ax.yaxis.set_major_locator(plt.MultipleLocator(1000))
         ax.yaxis.set_minor_locator(plt.MultipleLocator(200))
     
-    ax.xaxis.set_label_position('top')
-    ax.xaxis.set_ticks_position('top')
+    ax.xaxis.set_label_position(x_axis_position)
+    ax.xaxis.set_ticks_position(x_axis_position)
     ax.margins(x=0.05, y=0.05)
 
 def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, production_rate, mode='color'):
@@ -173,7 +174,8 @@ def plot_results(p1, y1, y2, p2, D, coeffs, glr_input, interpolation_status, pro
             y_lim=(0, 31000),
             title=None,
             mode=mode,
-            is_log_log=False
+            is_log_log=False,
+            x_axis_position='top'  # Keep x-axis at top for this plot
         )
         ax.invert_yaxis()
         
@@ -266,7 +268,8 @@ def plot_curves(tpr_points, ipr_points, intersection_q0, intersection_p, conduit
             y_lim=(0, max(max(tpr_p2), max(ipr_pwf), pr, 4000) * 1.1),
             title='TPR and IPR Curves with Natural Flow Point',
             mode=mode,
-            is_log_log=False
+            is_log_log=False,
+            x_axis_position='bottom'  # Move x-axis to bottom for Vogel (IPR) plot
         )
         ax.xaxis.set_major_locator(plt.MultipleLocator(100))
         ax.xaxis.set_minor_locator(plt.MultipleLocator(20))
@@ -344,7 +347,8 @@ def plot_fetkovich_log_log(points, pr, c, n, mode='color'):
             y_label='log(Q0)',
             title='Fetkovich Log-Log Plot',
             mode=mode,
-            is_log_log=True
+            is_log_log=True,
+            x_axis_position='bottom'  # Move x-axis to bottom for Fetkovich log-log
         )
         
         # Add legend
@@ -412,7 +416,8 @@ def plot_fetkovich_flow_after_flow(points, pr, c, n, mode='color'):
             y_label='Production Rate (Q0, stb/day)',
             title='Flow After Flow Test Results',
             mode=mode,
-            is_log_log=False
+            is_log_log=False,
+            x_axis_position='bottom'  # Move x-axis to bottom for Flow-after-Flow
         )
         
         # Add legend
@@ -532,7 +537,8 @@ def plot_glr_graphs(reference_data, conduit_size, production_rate, mode='color')
             y_lim=(0, 31000),
             title=f"GLR Curves (Conduit: {conduit_size} in, Production: {production_rate} stb/day)",
             mode=mode,
-            is_log_log=False
+            is_log_log=False,
+            x_axis_position='top'  # Keep x-axis at top for this plot
         )
         ax.invert_yaxis()
         
